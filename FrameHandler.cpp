@@ -114,6 +114,7 @@ FrameHandler::~FrameHandler(){
 
 bool FrameHandler::Play(){
     while(1){
+        time_start = getTickCount();
         
         roi_width_rate_temp = (double)roi_width_rate / 100;
         roi_height_rate_temp = (double)roi_height_rate / 100;
@@ -127,7 +128,6 @@ bool FrameHandler::Play(){
         thold_object_width = frame.cols/2 * thold_object_width_rate_temp;
         thold_object_height = upperline*2 * thold_object_height_rate_temp;
         
-        time_start = getTickCount();
         if(waitKey(20) == 'p'){
             while(waitKey(1) != 'p');
         }
@@ -178,6 +178,8 @@ bool FrameHandler::Play(){
         if(totalframe == 2000)
             totalframe = 0;
         
+        time_end = getTickCount();
+        
         if(totalframe % 50 == 0){ // THIS IS FOR DEBUGGING
             cout << "===============================" << endl;
             cout << "varThreshold : " << varThreshold << endl;
@@ -187,16 +189,14 @@ bool FrameHandler::Play(){
             cout << "ROI HEIGHT : " << roi_height_rate << "%" << endl;
             cout << "ROI WIDTH  : " << roi_width_rate << "%" << endl;
             cout << "===============================" << endl;
-            // cout << "detection() time \t\t: " << (time_end - time_start) / getTickFrequency() << endl;
-            time_end = getTickCount();
-            /* use this code when you wanna get elapsed time in a frame.
+            // use this code when you wanna get elapsed time in a frame.
             if(totalframe % thold_detect_time == 0){
                 cout << "(DETECT RUN? YES) " << (time_end - time_start) / getTickFrequency() << endl;
             }
             else{
                 cout << "(DETECT RUN? NO )" <<(time_end - time_start) / getTickFrequency() << endl;
             }
-            */
+            
         }
         
     } // total while
