@@ -36,6 +36,8 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     
     capture >> frame;
     
+    cout << "Video : " << frame.cols << " X " << frame.rows << endl;
+    
 //!!!!!!!!!!!!!!!!!!!!!! this ratio need to be changed when other video loaded -> round(frame.cols / thold_detect_cols)
     //ratio = round(800/thold_detect_cols);
     ratio = round(frame.cols / thold_detect_cols);
@@ -71,7 +73,7 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     int token;
     cout << "use dividing ROI function? (1: yes / other num: no)" ; cin >> token;
         if(token == 1) MAKEBOXFUNC_DIVIDING_TOKEN = true;
-        else bool MAKEBOXFUNC_DIVIDING_TOKEN = false;
+        else MAKEBOXFUNC_DIVIDING_TOKEN = false;
     cout << endl;
     cout << "SYSTEM : Program will reboot when 'binarization' is 0" << endl;
     cout << "SYSTEM : Press 'p' to stop/play the video." << endl;
@@ -99,8 +101,6 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     cout << fgMaskMOG2.cols << " " << fgMaskMOG2.rows << endl;
     
     upper_1, upper_2, upper_3, below_3, below_2, below_1 = nullptr;
-    
-    cout << "Video : " << frame.cols << " X " << frame.rows << endl;
 }
 
 FrameHandler::~FrameHandler(){
@@ -339,11 +339,9 @@ void FrameHandler::detect_upperline(int x){
     circle(frame, Point(x * ratio, upperline + thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
     if(upper_3[x * ratio] == 255){
         if(upper_2[x * ratio] == 255){
-            circle(fgMaskMOG2, Point(x * ratio, upperline), 3, Scalar(0, 0, 255)); // Debug ;
             if(upper_1[x * ratio] == 255){
                 // time_start = getTickCount();
                 max_width_temp = 0;
-                circle(fgMaskMOG2, Point(x * ratio, upperline + thold_object_height), 3, Scalar(0, 0, 255)); // Debug ;
                 recursive_temp1 = recursive_ruler_x(upper_1, x * ratio, thold_detect_cols);
                 recursive_temp2 = recursive_ruler_x(upper_2, x * ratio, thold_detect_cols);
                 recursive_temp3 = recursive_ruler_x(upper_3, x * ratio, thold_detect_cols);
