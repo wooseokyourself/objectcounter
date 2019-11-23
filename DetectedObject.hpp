@@ -40,11 +40,13 @@ private:
     int prev_position_x;
     int prev_position_y;
     
+    int area;
+    int peoplenumber;
 public:
     DetectedObject(int center_x, int center_y, int width, int height, int frame, int position);
     // width <- horizon , height <- 2*thold_object_column
-    void reset();
-    void save_prev_pos();
+    void reset(Mat& frame);
+    void save_prev_pos(Mat& frame);
 };
 
 #endif /* DetectedObject_hpp */

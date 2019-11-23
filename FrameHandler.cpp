@@ -7,13 +7,6 @@
 
 #include "FrameHandler.hpp"
 
-/*
-float FrameHandler::range_[] = {0, 180}; // for HSV in meanShift
-const float* FrameHandler::range[] = {range_}; // for HSV in meanShift
-int FrameHandler::histSize[] = {180}; // for HSV in meanShift
-int FrameHandler::channels[] = {0}; // for HSV in meanShift
- 
-*/
 FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0)
 {
     int capture_type;
@@ -70,10 +63,6 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     cout << "set ROI Height(%) : " ; cin >> roi_height_rate;
     cout << "set ROI Width(%)  : " ; cin >> roi_width_rate;
     cout << "set thold_detect_time : "; cin >> thold_detect_time;
-    int token;
-    cout << "use dividing ROI function? (1: yes / other num: no)" ; cin >> token;
-        if(token == 1) MAKEBOXFUNC_DIVIDING_TOKEN = true;
-        else MAKEBOXFUNC_DIVIDING_TOKEN = false;
     cout << endl;
     cout << "SYSTEM : Program will reboot when 'binarization' is 0" << endl;
     cout << "SYSTEM : Press 'p' to stop/play the video." << endl;
@@ -147,6 +136,7 @@ bool FrameHandler::Play(){
         pMOG->apply(frame, fgMaskMOG2);
         set_Mask();
         
+        /*
         stringstream ss;
         rectangle(frame, Point(10, 2), Point(100,20), Scalar(255,255,255), -1);
         ss << capture.get(CAP_PROP_POS_FRAMES);
@@ -161,6 +151,7 @@ bool FrameHandler::Play(){
         rectangle(frame, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
         
         rectangle(frame, Point(10, 40), Point( 10 + roi_width, 40 + roi_height), Scalar(255, 0, 0), 2);
+         */
         
         if(totalframe % thold_detect_time == 0){
             check_endpoint();
@@ -231,10 +222,10 @@ void FrameHandler::check_endpoint(){
     while(true){ // Check detected boxes are in end point
         if(k >= Objects.size())
             break;
-        if(totalframe - Objects[k].frame > thold_detect_time*5){
+        if(totalframe - Objects[k].frame > thold_detect_time*10){
             // This "if" checks the difference between "object's frame" from "total frame".
             // this difference helps to prevent not removing the box which created just now.
-            Objects[k].reset();
+            Objects[k].reset(fgMaskMOG2);
             if(Objects[k].center_y <= upperline /*Down-to-Top*/ || Objects[k].center_y >= belowline  /*Top-to-Down*/
                || Objects[k].y == 0 || Objects[k].y + Objects[k].height == frame.rows){
                 if(Objects.size() != 0)
@@ -245,16 +236,20 @@ void FrameHandler::check_endpoint(){
             }
             
         }
+        /* 가만히 있는 box 제거 */
+        /*
         if(abs(Objects[k].prev_position_y - Objects[k].y) < 10 && abs(Objects[k].prev_position_x - Objects[k].x) < 10){
             swap(Objects[k], Objects.back());
             Objects.pop_back();
             continue;
         }
+         */
         
+        /* 센터가 겹치는 box 중 하나 제거 */
         for(int i=0; i<Objects.size(); i++){
             if(k == i)
                 continue;
-            if(abs(Objects[k].center_x - Objects[i].center_x) < roi_width*7/10 && abs(Objects[k].center_y - Objects[i].center_y) < roi_height*7/10){
+            if(abs(Objects[k].center_x - Objects[i].center_x) < roi_width*8/10 && abs(Objects[k].center_y - Objects[i].center_y) < roi_height*8/10){
                 swap(Objects[k], Objects.back());
                 Objects.pop_back();
             }
@@ -266,7 +261,7 @@ void FrameHandler::check_endpoint(){
 void FrameHandler::detection(){
     int x = 0;
     /*
-     The two "while"s checks "x(from '0' to 'thold_detect_cols')"
+     The two "while" checks "x(from '0' to 'thold_detect_cols')"
      whether (x , upperline +- thold_object_column) pixel is white.
      The first checks only on upperline, and the second checks only in belowline.
      The "for"s in each "while" checks if detected object(boxes) is on the "x".
@@ -285,7 +280,7 @@ void FrameHandler::detection(){
     while(true){ // for upper line
         
         for(int i=0; i<Objects.size(); i++){
-            Objects[i].save_prev_pos();
+            Objects[i].save_prev_pos(fgMaskMOG2);
             /*
             if(Objects[i].y <= upperline + thold_object_height){
                 if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
@@ -330,13 +325,15 @@ void FrameHandler::detection(){
             x++;
         }
     }
+    
+    waitKey(0);
 }
 
 void FrameHandler::detect_upperline(int x){
     ////////////////////////////////////////////////////////
     //      DETECT; UPPER LINE
     ////////////////////////////////////////////////////////
-    circle(frame, Point(x * ratio, upperline + thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
+    // circle(frame, Point(x * ratio, upperline + thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
     if(upper_3[x * ratio] == 255){
         if(upper_2[x * ratio] == 255){
             if(upper_1[x * ratio] == 255){
@@ -349,15 +346,8 @@ void FrameHandler::detect_upperline(int x){
                     max_width_temp = max( max(recursive_temp1, recursive_temp2), recursive_temp3 );
                     if(thold_object_width <= max_width_temp){
                         // This "if" checks whether detected object is big enough ; standard is "thold_object_width"
-                        // MakeBox(x * ratio, upperline - thold_object_height, boxwidth_temp);
-                        if(MAKEBOXFUNC_DIVIDING_TOKEN && (roi_width*2*(3/5)) <= max_width_temp){
-                            MakeBox((x*ratio + (max_width_temp/4)*(1/4)), upperline);
-                            MakeBox((x*ratio + (max_width_temp/4)*(3/4)), upperline);
-                        }
-                        else{
-                            MakeBox((x*ratio) + (max_width_temp/2), upperline);
+                        MakeBox((x*ratio) + (max_width_temp/2), upperline);
                         // upperline is y cordinate of upper_2 pixels
-                        }
                     }
                     x += int(max_width_temp/ratio); // After checking the object, we don't need to check the overlapping pixels, so jump.
                 }
@@ -374,14 +364,14 @@ void FrameHandler::detect_belowline(int x){
     ////////////////////////////////////////////////////////
     //      DETECT; BELOW LINE
     ////////////////////////////////////////////////////////
-    circle(frame, Point(x * ratio, belowline - thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
+    // circle(frame, Point(x * ratio, belowline - thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
     if(below_3[x * ratio] == 255){
         if(below_2[x * ratio] == 255){
-            circle(fgMaskMOG2, Point(x * ratio, belowline), 3, Scalar(0, 0, 255)); // Debug ;
+            // circle(fgMaskMOG2, Point(x * ratio, belowline), 3, Scalar(0, 0, 255)); // Debug ;
             if(below_1[x * ratio] == 255){
                 // time_start = getTickCount();
                 max_width_temp = 0;
-                circle(fgMaskMOG2, Point(x * ratio, belowline + thold_object_height), 3, Scalar(0, 0, 255)); // Debug ;
+                // circle(fgMaskMOG2, Point(x * ratio, belowline + thold_object_height), 3, Scalar(0, 0, 255)); // Debug ;
                 recursive_temp1 = recursive_ruler_x(below_1, x * ratio, thold_detect_cols);
                 recursive_temp2 = recursive_ruler_x(below_2, x * ratio, thold_detect_cols);
                 recursive_temp3 = recursive_ruler_x(below_3, x * ratio, thold_detect_cols);
@@ -390,14 +380,7 @@ void FrameHandler::detect_belowline(int x){
                     max_width_temp = max( max(recursive_temp1, recursive_temp2), recursive_temp3 );
                     if(thold_object_width <= max_width_temp){
                         // This "if" checks whether detected object is big enough ; standard is "thold_object_width"
-                        // MakeBox(x * ratio, upperline - thold_object_height, boxwidth_temp);
-                        if(MAKEBOXFUNC_DIVIDING_TOKEN && (roi_width*2*(3/5)) <= max_width_temp){
-                            MakeBox((x*ratio + (max_width_temp/4)*(1/4)), belowline);
-                            MakeBox((x*ratio + (max_width_temp/4)*(3/4)), belowline);
-                        }
-                        else{
-                            MakeBox((x*ratio) + (max_width_temp/2), belowline);
-                        }
+                        MakeBox((x*ratio) + (max_width_temp/2), belowline);
                         // upperline is y cordinate of upper_2 pixels
                     }
                     x += int(max_width_temp/ratio); // After checking the object, we don't need to check the overlapping pixels, so jump.
@@ -412,7 +395,7 @@ void FrameHandler::detect_belowline(int x){
 }
 
 void FrameHandler::tracking_and_counting(){
-    string cor_a, cor_b;
+    string area;
     if(Objects.size() != 0){ // this "if" condition is necessary because 'roi_hist' is empty when program starts.
         // cvtColor(frame, hsv, COLOR_BGR2HSV); // for HSV in meanShift
         for(int i=0; i<Objects.size(); i++){
@@ -457,17 +440,14 @@ void FrameHandler::tracking_and_counting(){
             
             meanShift(fgMaskMOG2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
             rectangle(frame, Objects[i].box, Scalar(0, 255, 0), 3);
-            Objects[i].reset();
+            Objects[i].reset(fgMaskMOG2);
             /////////////////////////////////////////////////////////////////////////////////////
             
             
-            cor_a = to_string(Objects[i].y);
-            cor_b = to_string(Objects[i].y + Objects[i].height);
+            area = to_string(Objects[i].area);
             
             rectangle(frame, Point(Objects[i].x, Objects[i].y), Point(Objects[i].x + 50, Objects[i].y + 18), Scalar(255,255,255), -1);
-            rectangle(frame, Point(Objects[i].x + Objects[i].width, Objects[i].y + Objects[i].height), Point(Objects[i].x + Objects[i].width + 50, Objects[i].y + Objects[i].height + 18), Scalar(255,255,255), -1);
-            putText(frame, cor_a, Point(Objects[i].x, Objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5 , Scalar(0,0,0));
-            putText(frame, cor_b, Point(Objects[i].x + Objects[i].width, Objects[i].y + Objects[i].height), FONT_HERSHEY_SIMPLEX, 0.5 , Scalar(0,0,0));
+            putText(frame, area, Point(Objects[i].x, Objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
             
             if( (Objects[i].position == upper_area) && (Objects[i].center_y > midline) ){
                 Objects[i].position = below_area;
@@ -520,10 +500,10 @@ int FrameHandler::recursive_ruler_x(uchar* ptr, int start, const int& interval){
 }
 
 void FrameHandler::MakeBox(int center_x, int center_y){
-    // This "if" checks whether this box is detected previous box's object(by frame).
-    // If does, delete the previous box.
+    /* This "if" checks whether this box is detected previous box's object(by frame).
+    If does, return (not making a new box). */
     if(Objects.size() > 0){
-        Objects.back().reset();\
+        Objects.back().reset(fgMaskMOG2);
         if(abs(Objects.back().center_y - center_y) < roi_height/2 && abs(Objects.back().center_x - center_x) < roi_width ){
             return;
         }
@@ -538,7 +518,71 @@ void FrameHandler::MakeBox(int center_x, int center_y){
     else{
         Objects.push_back( DetectedObject(center_x, center_y, roi_width, roi_height, totalframe, below_area) );
     }
-    // setup_roi_of_latest_obj(); // for HSV in meanShift
+    fitBox(Objects.back());
+}
+
+void FrameHandler::fitBox(DetectedObject &roi){
+    Rect& box = roi.box;
+    
+    /* 세로 줄 조정 */
+    bool flagA, flagB = false;
+    cout << "starting x: " << box.x << endl;
+    cout << " and width: " << box.width << endl;
+    while(!flagA || !flagB){
+        for(int i=box.y; i<box.y + box.height; i++){
+            if(!flagA){
+                if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
+                    flagA = true;
+                }
+            }
+            if(!flagB){
+                if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
+                    flagB = true;
+                }
+            }
+        }
+        if(!flagA){ /* 좌측 줄 땡기기 */
+            box.x += 1;
+            box.width -= 1;
+            // cout << " > left line: " << box.x << endl;
+        }
+        if(!flagB){ /* 우측 줄 땡기기 */
+            box.width -= 1;
+            // cout << " > right line: " << box.x + box.width << endl;
+        }
+        if(box.width == 1){ /* for DEBUG */
+            cout << "error" << endl;
+        }
+    }
+    
+    /* 가로 줄 조정 */
+    flagA, flagB = false;
+    while(!flagA || !flagB){
+        for(int i=box.x; i<box.x + box.width; i++){
+            if(!flagA){
+                if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
+                    flagA = true;
+                }
+            }
+            if(!flagB){
+                if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
+                    flagB = true;
+                }
+            }
+        }
+        if(!flagA){ /* 상단 줄 땡기기 */
+            box.y += 1;
+            box.height -= 1;
+        }
+        if(!flagB){ /* 하단 줄 땡기기 */
+            box.height -= 1;
+        }
+        if(box.height == 1){ /* for DEBUG */
+            cout << "error" << endl;
+        }
+    }
+    
+    roi.reset(fgMaskMOG2);
 }
 
 

@@ -23,17 +23,18 @@ DetectedObject::DetectedObject(int center_x, int center_y, int width, int height
     box = Rect(x, y, width, height);
 }
 
-void DetectedObject::reset(){
+void DetectedObject::reset(Mat& frame){
     x = box.x;
     y = box.y;
     width = box.width;
     height = box.height;
     center_x = x + width/2;
     center_y = y + height/2;
+    area = countNonZero(Mat(frame, box));
 }
 
-void DetectedObject::save_prev_pos(){
+void DetectedObject::save_prev_pos(Mat& frame){
     prev_position_x = x;
     prev_position_y = y;
-    reset();
+    reset(frame);
 }
