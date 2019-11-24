@@ -7,10 +7,225 @@
 
 #include "FrameHandler.hpp"
 
-FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0)
+int boxpt1x, boxpt1y, boxpt2x, boxpt2y;
+int mouseEventCount;
+
+void callback_setBox(int event, int x, int y, int flags, void *userdata){
+    if(event == EVENT_LBUTTONUP){
+        if(mouseEventCount == 0){
+            cout << "Mouse Event " << mouseEventCount + 1 << endl;
+            boxpt1x = x;
+            boxpt1y = y;
+        }
+        else if(mouseEventCount == 1){
+            cout << "Mouse Event " << mouseEventCount + 1 << endl;
+            boxpt2x = x;
+            boxpt2y = y;
+        }
+        mouseEventCount++;
+    }
+}
+
+int calib(string videopath, int f, int min, int max){
+    cout << "calib func (" << min << ", " << max << ")" << endl;
+    if (min < 1)
+        min = 1;
+    
+    Rect box = Rect(Point(boxpt1x, boxpt1y), Point(boxpt2x, boxpt2y));
+    int itv = round((max - min) / 7);
+    int var[7] = {min, min+itv, min+2*itv, min+3*itv, min+4*itv, min+5*itv, max};
+    int inbox[7];
+    int subtract[7];
+    int high = 0;
+    int secondhigh = 0;
+    int low = 0;
+    int highidx = -1;
+    int secondhighidx = -1;
+    int lowidx = -1;
+    bool morethanzero[7];
+    
+    int nowf;
+    /* inbox, subtract 계산 */
+    for(int i=0; i<7; i++){
+        Mat *frame = new Mat;
+        Mat *fgMaskMOG2 = new Mat;
+        Ptr<BackgroundSubtractor> *pMOG = new Ptr<BackgroundSubtractor>;
+        VideoCapture *inputVideo = new VideoCapture;
+        
+        namedWindow("processing...");
+        inputVideo->open(videopath);
+        Size size = Size((int)inputVideo->get(CAP_PROP_FRAME_WIDTH), (int)inputVideo->get(CAP_PROP_FRAME_HEIGHT));
+        cout << "Size: " << size << endl;
+        cout << "var[" << i << "]: " << var[i] << endl;
+        *pMOG = createBackgroundSubtractorMOG2(500, var[i], true);
+        nowf = 0;
+        for(;;){
+            nowf++;
+            if(!inputVideo->read(*frame)){
+                cout << "error. 왜 동영상이 벌써끊겨?" << endl;
+                exit(-1);
+            }
+            (*pMOG)->apply(*frame, *fgMaskMOG2);
+            blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
+            threshold(*fgMaskMOG2, *fgMaskMOG2, 175, 255, THRESH_BINARY);
+            imshow("processing...", *fgMaskMOG2);
+            // if(nowf%5 == 0) waitKey(0);
+            if(nowf == f){
+                cout << i << " 번 째 비디오의 마지막 프레임입니다." << endl;
+                inbox[i] = countNonZero(Mat(*fgMaskMOG2, box));
+                if(inbox[i] > high){
+                    secondhigh = high;
+                    secondhighidx = highidx;
+                    high = inbox[i];
+                    highidx = i;
+                }
+                else if(inbox[i] < low){
+                    low = inbox[i];
+                    lowidx = i;
+                }
+                subtract[i] = countNonZero(*fgMaskMOG2) - inbox[i];
+                if(subtract[i] > 0) morethanzero[i] = true;
+                else morethanzero[i] = false;
+                /* debug */
+                cout << "inbox[" << i << "]: " << inbox[i] << endl;
+                cout << "subtr[" << i << "]: " << subtract[i] << endl;
+                break;
+            }
+        }
+        delete frame;
+        delete fgMaskMOG2;
+        delete pMOG;
+        delete inputVideo;
+        destroyWindow("processing...");
+    }
+    
+    
+    /* 종료조건 */
+    if(max - min < 10)
+        return var[highidx];
+    
+    /*
+     subtract > 0 조사.
+     calib 호출시 subtract>0 인 값을 min 혹은 max로 그대로 넣으면 무한재귀에 빠지게 되므로
+     itv/2 만큼 범위를 좁혀서 호출
+     */
+    for(int i=0; i<6; i++){
+        if((morethanzero[i] && !morethanzero[i+1]) || (!morethanzero[i] && morethanzero[i+1])){
+            if(morethanzero[i])
+                return calib(videopath, f, var[i]+(var[i+1]-var[i])/2, max);
+            else if(!morethanzero[i])
+                return calib(videopath, f, min, var[i+1]-(var[i+1]-var[i])/2);
+        }
+    }
+    
+    if(subtract[0] > 0 && subtract[6] > 0){
+        if(subtract[0] > subtract[6]){
+            return calib(videopath, f, var[6], max+var[6]);
+        }
+        else if(subtract[0] < subtract[6]){
+            return calib(videopath, f, min-var[0], var[0]);
+        }
+        else
+            return std::max(calib(videopath, f, var[6], max+var[6]), calib(videopath, f, min-var[0], var[0]));
+    }
+    /* 모두 0일 경우 */
+    else if(subtract[0] == 0 && subtract[6] == 0){
+        return calib(videopath, f, std::min(var[secondhighidx], var[highidx]), std::max(var[secondhighidx], var[highidx]));
+    }
+    
+    /* 선형그래프일 경우 */
+    if(lowidx == 0 && highidx == 6){
+        cout << "선형그래프!" << endl;
+        return calib(videopath, f, max, max+(max-min)/2);
+    }
+    else if(lowidx == 6 && highidx == 0){
+        cout << "선형그래프!" << endl;
+        return calib(videopath, f, min-(max-min)/2, min);
+    }
+    
+    /* 볼록그래프일 경우 */
+    else if(0 < highidx && highidx < 6){
+        cout << "볼록그래프!" << endl;
+        return calib(videopath, f, var[highidx-1], var[highidx+1]);
+    }
+    
+    /* 오목그래프일 경우 */
+    else if(0 < lowidx && lowidx < 6){
+        cout << "오목그래프!" << endl;
+        if(secondhighidx > -1)
+            return std::max(calib(videopath, f, var[highidx]-itv, var[highidx]+itv), calib(videopath, f, var[secondhighidx]-itv, var[secondhighidx]+itv));
+        else
+            return calib(videopath, f, var[highidx]-itv, var[highidx]+itv);
+    }
+    else{
+        cout << "이건 예정에 없던 그래프인데용?" << endl;
+        exit(-1);
+    }
+}
+
+int calib_init(string videopath){
+    /*
+     맥에서 비디오 저장이 안되어서 일단은 원본동영상에서 정지하였을 때의 프레임수를 넘겨서,
+     calib에서는 원본동영상과 프레임수로 언제 MOG2 계산을 할 지를 결정하는 식으로 구현함.
+     변수 f가 바로 그 프레임을 나타냄.
+     */
+    VideoCapture inputVideo;
+    VideoWriter outputVideo;
+    Mat frame;
+    Mat image;
+    inputVideo.open(videopath);
+    Size size = Size((int)inputVideo.get(CAP_PROP_FRAME_WIDTH), (int)inputVideo.get(CAP_PROP_FRAME_HEIGHT));
+    cout << "Size = " << size << endl;
+    int fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
+    double fps = inputVideo.get(CAP_PROP_FPS); // 여기에서 fps가 지금 추출될 수 있는지는 모름
+    bool isColor = true;
+    outputVideo.open("ref.mov", fourcc, 25, size, isColor);
+    namedWindow("optimization");
+    
+    int f = 0;
+    
+    for(;;){
+        f++;
+        
+        if(waitKey(20) == 'p'){
+            frame.copyTo(image);
+            break;
+        }
+        
+        if (!inputVideo.read(frame)){
+            cout << "video is over" << endl;
+            break;
+        }
+        cout << "read success" << endl;
+        
+        outputVideo.write(frame);
+        cout << "write success" << endl;
+        
+        imshow("optimization", frame);
+    }
+    inputVideo.release();
+    outputVideo.release();
+    frame.release();
+    destroyWindow("optimization");
+    namedWindow("image");
+    setMouseCallback("image", callback_setBox, NULL);
+    imshow("image", image);
+    waitKey(0);
+    image.release();
+    destroyWindow("image");
+    cout << "set pt1(" << boxpt1x << "," << boxpt1y << ")" << endl;
+    cout << "set pt2(" << boxpt2x << "," << boxpt2y << ")" << endl;
+    return calib(videopath, f, 1, 50);
+}
+
+FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), thold_binarization(175)
 {
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
+    
+    varThreshold = calib_init(videopath);
+    cout << "varThreshold: " << varThreshold << endl;
+    
     if(capture_type == 1)
         capture.open(videopath);
     else if(capture_type == 0)
@@ -22,7 +237,6 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
         
     pMOG = createBackgroundSubtractorMOG2(history, varThreshold, true);
     // pMOG = createBackgroundSubtractorMOG2(500, 16, false);
-    // pMOG = createBackgroundSubtractorKNN();
     
     namedWindow("Frame");
     namedWindow("FG Mask MOG 2");
@@ -51,13 +265,7 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
         exit(1);
     }
     
-    history = 500;
-    // cout << "set history (default : 500) : ";
-    // cin >> history;
-    
-    cout << "set varThreshold (default : 200) : "; cin >> varThreshold;
-    cout << "set Binarization (default : 200) : "; cin >> thold_binarization;
-    cout << "set history (default : 500) : "; cin >> history;
+    cout << "set history : "; cin >> history;
     cout << "set Obj Height(%) : "; cin >> thold_object_height_rate;
     cout << "set Obj Width(%)  : "; cin >> thold_object_width_rate;
     cout << "set ROI Height(%) : " ; cin >> roi_height_rate;
