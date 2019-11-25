@@ -8,7 +8,12 @@
 #include "FrameHandler.hpp"
 #include <limits.h>
 
+/*
+ 이 값은 calibration에서 마우스이벤트로 초기화되고,
+ 그 값을 그대로 MakeBox에서 roi_width, roi_height 를 결정하는데에 쓰인다.
+ */
 int boxpt1x, boxpt1y, boxpt2x, boxpt2y;
+
 int mouseEventCount;
 
 void callback_setBox(int event, int x, int y, int flags, void *userdata){
@@ -27,14 +32,30 @@ void callback_setBox(int event, int x, int y, int flags, void *userdata){
     }
 }
 
-int calib(string videopath, int f, int min, int max){
+
+int calib(string videopath, int f, int min, int max, int& personMax){
     cout << "calib func (" << min << ", " << max << ")" << endl;
     if (min < 1)
         min = 1;
     
     Rect box = Rect(Point(boxpt1x, boxpt1y), Point(boxpt2x, boxpt2y));
     int itv = round((max - min) / 7);
-    int var[7] = {min, min+itv, min+2*itv, min+3*itv, min+4*itv, min+5*itv, max};
+    
+    int var[7];
+    if(max - min >= 7){ // var = {min, min+itv, min+2*itv, min+3*itv, min+4*itv, min+5*itv, max};
+        for(int i=0; i<7; i++){
+            if(i!=6)
+                var[i] = min+(itv*i);
+            else
+                var[i] = max;
+        }
+    }
+    else{ // var = {min, min+1, min+2, min+3, ... }
+        for(int i=0; i<7; i++){
+            var[i] = min+i;
+        }
+    }
+    
     int inbox[7];
     int subtract[7];
     int high = 0;
@@ -44,6 +65,10 @@ int calib(string videopath, int f, int min, int max){
     int secondhighidx = -1;
     int lowidx = -1;
     bool morethanzero[7];
+    bool allzero = true;
+    
+    int sumDiffVars = 0; /* var[i] - var[i-1] 의 합 (i=0~6) */
+    int sumDiffSubtracts = 0; /* subtract[i-1] - subtract[i] 의 합 (i=0~6) */
     
     int nowf;
     /* inbox, subtract 계산 */
@@ -52,14 +77,13 @@ int calib(string videopath, int f, int min, int max){
         Mat *fgMaskMOG2 = new Mat;
         Ptr<BackgroundSubtractor> *pMOG = new Ptr<BackgroundSubtractor>;
         VideoCapture *inputVideo = new VideoCapture;
-        
         namedWindow("processing...");
         inputVideo->open(videopath);
         Size size = Size((int)inputVideo->get(CAP_PROP_FRAME_WIDTH), (int)inputVideo->get(CAP_PROP_FRAME_HEIGHT));
-        cout << "Size: " << size << endl;
-        cout << "var[" << i << "]: " << var[i] << endl;
         *pMOG = createBackgroundSubtractorMOG2(500, var[i], true);
         nowf = 0;
+        
+        cout << "idx: " << i << "| var: " << var[i] << ", ";
         for(;;){
             nowf++;
             if(!inputVideo->read(*frame)){
@@ -71,7 +95,7 @@ int calib(string videopath, int f, int min, int max){
             
             /*
              blur와 binarization 은 실제 프로그램 구동시의 설정과 동일하게.
-             set_Mask() 참고
+             set_Mask() 참고.
              */
             /* blur 처리 */
             blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
@@ -82,8 +106,8 @@ int calib(string videopath, int f, int min, int max){
             imshow("processing...", *fgMaskMOG2);
             // if(nowf%5 == 0) waitKey(0);
             if(nowf == f){
-                cout << i << " 번 째 비디오의 마지막 프레임입니다." << endl;
                 inbox[i] = countNonZero(Mat(*fgMaskMOG2, box));
+                cout << inbox[i] << " | " ;
                 if(inbox[i] > high){
                     secondhigh = high;
                     secondhighidx = highidx;
@@ -95,11 +119,12 @@ int calib(string videopath, int f, int min, int max){
                     lowidx = i;
                 }
                 subtract[i] = countNonZero(*fgMaskMOG2) - inbox[i];
-                if(subtract[i] > 0) morethanzero[i] = true;
+                cout << subtract[i] << endl;
+                if(subtract[i] > 0){
+                    morethanzero[i] = true;
+                    allzero = false;
+                }
                 else morethanzero[i] = false;
-                /* debug */
-                cout << "inbox[" << i << "]: " << inbox[i] << endl;
-                cout << "subtr[" << i << "]: " << subtract[i] << endl;
                 break;
             }
         }
@@ -108,45 +133,126 @@ int calib(string videopath, int f, int min, int max){
         delete pMOG;
         delete inputVideo;
         destroyWindow("processing...");
+        
+        if(i != 0){
+            sumDiffVars += (var[i] - var[i-1]); /* var[i] 는 i와 비례하기 때문에 가능. */
+            sumDiffSubtracts += abs(subtract[i] - subtract[i-1]); /* subtract[i] 는 i와 반비례하기 때문에 가능 */
+        }
     }
     
     
-    /* 종료조건 */
-    if(itv < 1.9)
-        return var[highidx];
+    
+    /*
+     [알고리즘]
+     
+     0이 아닌 subst가 있는가? --> 각 원소의 간격(itv)이 충분히 짧은가? --> 그래프가 어느 쪽으로 상승하는가?
+     
+     */
     
     
 // subtract > 0 인 원소가 존재한다면..
-    
-    /*
-     subtract>0 인 원소와 subtract=0 인 원소가 서로 공존하는 경우.
-     calib 호출시 subtract>0 인 값을 min 혹은 max로 그대로 넣으면 무한재귀에 빠지게 되므로
-     itv/2 만큼 범위를 좁혀서 호출
-     */
-    for(int i=0; i<6; i++){
-        if((morethanzero[i] && !morethanzero[i+1]) || (!morethanzero[i] && morethanzero[i+1])){
-            if(morethanzero[i])
-                return calib(videopath, f, var[i]+(var[i+1]-var[i])/2, max);
-            else if(!morethanzero[i])
-                return calib(videopath, f, min, var[i+1]-(var[i+1]-var[i])/2);
+        /*
+         subtract>0 인 원소와 subtract=0 인 원소가 서로 공존하는 경우.
+         calib 호출시 subtract>0 인 값을 min 혹은 max로 그대로 넣으면 무한재귀에 빠지게 되므로
+         itv/2 만큼 범위를 좁혀서 호출
+         */
+        for(int i=0; i<6; i++){
+            if((morethanzero[i] && !morethanzero[i+1]) || (!morethanzero[i] && morethanzero[i+1])){
+                /* personMax 갱신 */
+                if(personMax == 0){
+                    personMax = (inbox[i] + inbox[i+1]) / 2;
+                }
+                else{
+                    personMax = (personMax + ((inbox[i] + inbox[i+1]) / 2)) / 2;
+                }
+                
+                if(max-min <= 7){ /* 종료조건 */
+                    if(morethanzero[i])
+                        return var[i+1];
+                    else
+                        return var[i];
+                }
+                
+                if(morethanzero[i]) // subtract[왼쪽] > 0 && subtract[오른쪽] = 0
+                    return calib(videopath, f, var[i]+(var[i+1]-var[i])/2, var[i+1], personMax);
+                else if(!morethanzero[i]) // subtract[왼쪽] = 0 && subtract[오른쪽] > 0
+                    return calib(videopath, f, var[i], var[i+1]-(var[i+1]-var[i])/2, personMax);
+            }
+            
         }
+    if( !((max-min) < 11) ){
+        /*
+         모든 원소가 subtract>0 인 경우.
+         (0~6 인덱스의 subtract 는 선형관계이기 때문에) 가장 subtract 값이 작은 인덱스와
+         그 바깥 범위(max-min 만큼 차이나는 곳의 값) 두 개를 가지고 재귀를 실행한다.
+         즉, 현재 재귀에서 탐색한 범위만큼을 더 subst가 작은 쪽으로 이동해서 탐색하는 것이다.
+         
+         여기 보강하기!!!
+         공책에 메모한 내용을 기반으로, 더욱 빨리 0인 구간을 찾도록.
+         
+         6개 시퀀스에 대해, (var[i+1] - var[i]) 의 평균을 aver(diff(var)) 이라고 하자. (=V)
+         또한, (subtract[i+1] - subtract[i]) 의 평균을 aver(diff(subtract)) 라고 하자. (=S)
+         현재 모든 시퀀스는 0이 아니므로 다음 구간을 재탐색해야 하는데, subtract[6] 에 비해 S가 굉장히
+         작은 숫자라면, var[7] 혹은 var[8]에 대응되는 var값 등 var[6]과 가까운 시퀀스는 충분히
+         다음 호출의 input으로 넣지 말고 건너뛰어도 된다고 추정할 수 있다.
+         이 때, 얼만큼을 건너뛸것인가를 결정하기 위한 알고리즘이 지금 설명하는 알고리즘이다.
+         (실상황에서도 항상 그렇지만, subtract[0] > subtract[6] != 0 이라고 가정하겠다.)
+         현재 우리가 알고자 하는 것은 다음 input의 min, max 값이다.
+         현재 가장 subtract 값이 낮은 6번째의 시퀀스에서, subtract = 0 이 되는 첫 번째의 6+k 번째 시퀀스를 구하기 위해 식을 세운다.
+         
+            k = subtract[6] / S
+         
+         만약 var[6] = 21 이라면 (현재 호출의 max),
+           var[6+k] = 21 + V*k 이다.
+         구간을 더욱 정교하게 잡기 위해, 다음 호출의 min 을 k-1, max를 k+1 로 한다고 하면,
+         
+            var[6+(k-1)] = 21 + V * (k-1)
+            var[6+(k+1)] = 21 + V * (k+1)
+         
+         즉 다음 호출은 calib( (var[6] + V*(k-1)), (var[6] + V*(k+1)) ) 이 된다.
+         */
+        if(subtract[0] > 0 && subtract[6] > 0){
+            int V = round(sumDiffVars/7);
+            int S = round(sumDiffSubtracts/7);
+            int k = round(subtract[6] / S);
+            if(subtract[0] > subtract[6]){
+                // return calib(videopath, f, var[6], (max-min)+var[6], personMax);
+                return calib(videopath, f, (var[6]+V*(k-1)), (var[6]+V*(k+1)), personMax);
+            }
+            else if(subtract[0] < subtract[6]){
+                cout << "뭔가 이상한데용? 어떻게 subtract[6]이 subtract[0]보다 더 클 수 있죠?" << endl;
+                exit(-1);
+                // return calib(videopath, f, (max-min)-var[0], var[0], personMax);
+            }
+            else{
+                /*
+                 subtract[0] = subtract[6], 일반적으로 bounding box(boxpt1, boxpt2)를 너무 작게 설정해서,
+                 아무리 varThreshold를 높여도 subtract에 일정 값이 항상 검출되어서 이런 일이 벌어진다.
+                 */
+                cout << "Bounding Box가 너무 좁습니다! 더 넓게 설정하십씨오!" << endl;
+                exit(-1);
+                // return std::max(calib(videopath, f, var[6], max+var[6], personMax), calib(videopath, f, min-var[0], var[0], personMax));
+            }
+        }
+        
     }
-    
-    /*
-     모든 원소가 subtract>0 인 경우.
-     (0~6 인덱스의 subtract 는 선형관계이기 때문에) 가장 subtract 값이 작은 인덱스와
-     그 바깥 범위(max-min 만큼 차이나는 곳의 값) 두 개를 가지고 재귀를 실행한다.
-     즉, 현재 재귀에서 탐색한 범위만큼을 더 subst가 작은 쪽으로 이동해서 탐색하는 것이다.
-     */
-    if(subtract[0] > 0 && subtract[6] > 0){
-        if(subtract[0] > subtract[6]){
-            return calib(videopath, f, var[6], (max-min)+var[6]);
+    else{  /* 종료조건, max-min < 11 */
+        if(allzero)
+            return high;
+        else{ /* allzero = false 라면 highidx.subst > 0 임이 자명하다. */
+            if(subtract[secondhighidx] == 0)
+                return secondhigh;
+            else{
+                if(highidx == 0)
+                    return var[6];
+                else if(highidx == 6)
+                    return var[0];
+                else{
+                    cout << "이런 경우는 본적이 없네요." << endl;
+                    exit(-1);
+                }
+            }
         }
-        else if(subtract[0] < subtract[6]){
-            return calib(videopath, f, (max-min)-var[0], var[0]);
-        }
-        else
-            return std::max(calib(videopath, f, var[6], max+var[6]), calib(videopath, f, min-var[0], var[0]));
     }
     
     /*
@@ -169,26 +275,26 @@ int calib(string videopath, int f, int min, int max){
     /* inbox가 선형그래프일 경우 */
     if(lowidx == 0 && highidx == 6){ // highidx가 6이라면, 자연히 high = max 가 성립.
         cout << "선형그래프!" << endl;
-        return calib(videopath, f, max, max+(max-min)/2);
+        return calib(videopath, f, max, max+(max-min)/2, personMax);
     }
     else if(lowidx == 6 && highidx == 0){ // highidx가 0이라면, 자연히 high = min 이 성립.
         cout << "선형그래프!" << endl;
-        return calib(videopath, f, min-(max-min)/2, min);
+        return calib(videopath, f, min-(max-min)/2, min, personMax);
     }
     
     /* inbox가 볼록그래프일 경우 */
     else if(0 < highidx && highidx < 6){
         cout << "볼록그래프!" << endl;
-        return calib(videopath, f, var[highidx-1], var[highidx+1]);
+        return calib(videopath, f, var[highidx-1], var[highidx+1], personMax);
     }
     
     /* 오목그래프일 경우 */
     else if(0 < lowidx && lowidx < 6){
         cout << "오목그래프!" << endl;
         if(secondhighidx > -1)
-            return std::max(calib(videopath, f, var[highidx]-itv, var[highidx]+itv), calib(videopath, f, var[secondhighidx]-itv, var[secondhighidx]+itv));
+            return std::max(calib(videopath, f, var[highidx]-itv, var[highidx]+itv, personMax), calib(videopath, f, var[secondhighidx]-itv, var[secondhighidx]+itv, personMax));
         else
-            return calib(videopath, f, var[highidx]-itv, var[highidx]+itv);
+            return calib(videopath, f, var[highidx]-itv, var[highidx]+itv, personMax);
     }
     else{
         cout << "이건 예정에 없던 그래프인데용?" << endl;
@@ -196,7 +302,7 @@ int calib(string videopath, int f, int min, int max){
     }
 }
 
-int calib_init(string videopath){
+int calib_init(string videopath, int& personMax){
     /*
      맥에서 비디오 저장이 안되어서 일단은 원본동영상에서 정지하였을 때의 프레임수를 넘겨서,
      calib에서는 원본동영상과 프레임수로 언제 MOG2 계산을 할 지를 결정하는 식으로 구현함.
@@ -244,7 +350,9 @@ int calib_init(string videopath){
     destroyWindow("image");
     cout << "set pt1(" << boxpt1x << "," << boxpt1y << ")" << endl;
     cout << "set pt2(" << boxpt2x << "," << boxpt2y << ")" << endl;
-    return calib(videopath, f, 1, 50);
+    
+    /* calib 재귀 초귀 inputs: 1(min), 50(max) */
+    return calib(videopath, f, 1, 50, personMax);
 }
 
 FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0),  thold_binarization(175)
@@ -252,8 +360,27 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
     
-    varThreshold = calib_init(videopath);
+    /* MOG2 파라미터 */
+    int history = 500;
+    int varThreshold = calib_init(videopath, personMax);
     cout << "varThreshold: " << varThreshold << endl;
+    cout << "personMax   : " << personMax << endl;
+    
+    /* ROI size 지정 */
+    roi_width = boxpt2x - boxpt1x;
+    roi_height = boxpt2y - boxpt1y;
+    if(roi_width <= 0 || roi_height <= 0){
+        cout << "왜 roi 가 지정이 안됐어??" << endl;
+        exit(-1);
+    }
+    cout << "roi_width : " << roi_width << endl;
+    cout << "roi_height: " << roi_height << endl;
+    
+    /* 흰색blob 탐색시 사용될 최소기준값 지정 */
+    thold_object_width = round(roi_width / 10);
+    thold_object_height = round(roi_height / 10);
+    cout << "obj_width : " << thold_object_width << endl;
+    cout << "obj_height: " << thold_object_height << endl;
     
     if(capture_type == 1)
         capture.open(videopath);
@@ -293,12 +420,14 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
         cout << "Wrong input. Program exit." << endl;
         exit(1);
     }
-    
-    cout << "set history : "; cin >> history;
+    /* automization of obj_width, obj_height
     cout << "set Obj Height(%) : "; cin >> thold_object_height_rate;
     cout << "set Obj Width(%)  : "; cin >> thold_object_width_rate;
+     */
+    /* automization of roi_width, roi_height
     cout << "set ROI Height(%) : " ; cin >> roi_height_rate;
     cout << "set ROI Width(%)  : " ; cin >> roi_width_rate;
+     */
     cout << "set thold_detect_time : "; cin >> thold_detect_time;
     cout << endl;
     cout << "SYSTEM : Program will reboot when 'binarization' is 0" << endl;
@@ -306,17 +435,23 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     cout << "SYSTEM : Press 'q' to quit." << endl;
     
     
-    
+    /* automization of obj_width, obj_height
     createTrackbar("White Width", "FG Mask MOG 2", &thold_object_width_rate, 100); // For controlling the minimum of detection_width.
     
     createTrackbar("White Height", "FG Mask MOG 2", &thold_object_height_rate, 100); // For controlling the minimum of detection_comlumn.
-    
+    */
+     
+    /* automization of roi_width, roi_height
     createTrackbar("ROI width", "Frame", &roi_width_rate, 100);
     createTrackbar("ROI height", "Frame", &roi_height_rate, 100);
+     */
     
-    // remember, upperline is (1/10 * frame.rows).
-    // it means the ROI's height must not be more than upperline*2,
-    // because when the ROI generated, its center_y will be on the upperline or below line.
+    
+    /*
+        remember, upperline is (1/10 * frame.rows).
+        it means the ROI's height must not be more than upperline*2,
+        because when the ROI generated, its center_y will be on the upperline or below line.
+     */
     
     createTrackbar("Binarization", "FG Mask MOG 2", &thold_binarization, 255);
     
@@ -342,17 +477,22 @@ bool FrameHandler::Play(){
     while(1){
         time_start = getTickCount();
         
+        
+        /* automization of roi_width, roi_heigh
         roi_width_rate_temp = (double)roi_width_rate / 100;
         roi_height_rate_temp = (double)roi_height_rate / 100;
         
         roi_width = frame.cols/2 * roi_width_rate_temp;
         roi_height = upperline*2 * roi_height_rate_temp;
+         */
         
+        /* automization of obj_width, obj_height
         thold_object_width_rate_temp = (double)thold_object_width_rate / 100;
         thold_object_height_rate_temp = (double)thold_object_height_rate / 100;
         
         thold_object_width = frame.cols/2 * thold_object_width_rate_temp;
         thold_object_height = upperline*2 * thold_object_height_rate_temp;
+         */
         
         if(waitKey(20) == 'p'){
             while(waitKey(1) != 'p');
@@ -373,23 +513,6 @@ bool FrameHandler::Play(){
         pMOG->apply(frame, fgMaskMOG2);
         set_Mask();
         
-        /*
-        stringstream ss;
-        rectangle(frame, Point(10, 2), Point(100,20), Scalar(255,255,255), -1);
-        ss << capture.get(CAP_PROP_POS_FRAMES);
-        string frameNumberString = ss.str();
-        putText(frame, frameNumberString.c_str(), Point(15, 15), FONT_HERSHEY_SIMPLEX, 0.5 , Scalar(0,0,0));
-        
-        rectangle(frame, Point(10, 20), Point(200, 40), Scalar(255, 255, 255), -1);
-        string dude = "COUNTER : " + to_string(counter);
-        putText(frame, dude, Point(15, 35), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
-        
-        rectangle(fgMaskMOG2, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
-        rectangle(frame, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
-        
-        rectangle(frame, Point(10, 40), Point( 10 + roi_width, 40 + roi_height), Scalar(255, 0, 0), 2);
-         */
-        
         if(totalframe % thold_detect_time == 0){
             check_endpoint();
             detection();
@@ -409,14 +532,13 @@ bool FrameHandler::Play(){
         time_end = getTickCount();
         
         if(totalframe % 50 == 0){ // THIS IS FOR DEBUGGING
-            cout << "===============================" << endl;
-            cout << "varThreshold : " << varThreshold << endl;
-            cout << "Binarization : " << thold_binarization << endl;
-            cout << "Obj Height : " << thold_object_height_rate << "%" << endl;
-            cout << "Obj Width  : " << thold_object_width_rate << "%" << endl;
-            cout << "ROI HEIGHT : " << roi_height_rate << "%" << endl;
-            cout << "ROI WIDTH  : " << roi_width_rate << "%" << endl;
-            cout << "===============================" << endl;
+            // cout << "===============================" << endl;
+            // cout << "Binarization : " << thold_binarization << endl;
+            // cout << "Obj Height : " << thold_object_height_rate << "%" << endl;
+            // cout << "Obj Width  : " << thold_object_width_rate << "%" << endl;
+            // cout << "ROI HEIGHT : " << roi_height_rate << "%" << endl;
+            // cout << "ROI WIDTH  : " << roi_width_rate << "%" << endl;
+            // cout << "===============================" << endl;
             // use this code when you wanna get elapsed time in a frame.
             if(totalframe % thold_detect_time == 0){
                 cout << "(DETECT RUN? YES) " << (time_end - time_start) / getTickFrequency() << endl;
@@ -687,22 +809,32 @@ void FrameHandler::tracking_and_counting(){
             putText(frame, area, Point(Objects[i].x, Objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
             
             if( (Objects[i].position == upper_area) && (Objects[i].center_y > midline) ){
+                if( countNonZero(Mat(fgMaskMOG2, Objects[i].box) < personMax)){ /* 사람 수 추정 */
+                    Objects[i].peoplenumber = 1;
+                }
+                else{
+                    Objects[i].peoplenumber = 2;
+                }
                 Objects[i].position = below_area;
-                // cout << "\t\t\t >> DETECT OBJECT, Up to Down." << endl;
-                cout << "\t >> IN" << endl;
                 if(inside == upper_area)
-                    counter--;
+                    counter -= Objects[i].peoplenumber;
                 else
-                    counter++;
+                    counter += Objects[i].peoplenumber;
+                cout << "\t >> IN : " << Objects[i].peoplenumber << endl;
             }
             if( (Objects[i].position == below_area) && (Objects[i].center_y < midline) ){
+                if( countNonZero(Mat(fgMaskMOG2, Objects[i].box) < personMax)){ /* 사람 수 추정 */
+                    Objects[i].peoplenumber = 1;
+                }
+                else{
+                    Objects[i].peoplenumber = 2;
+                }
                 Objects[i].position = upper_area;
-                // cout << "\t\t\t >> DETECT OBJECT, Down to Up." << endl;
-                cout << "\t >> OUT" << endl;
                 if(inside == upper_area)
-                    counter++;
+                    counter += Objects[i].peoplenumber;
                 else
-                    counter--;
+                    counter -= Objects[i].peoplenumber;
+                cout << "\t >> OUT: " << Objects[i].peoplenumber << endl;
             }
             // time_end = getTickCount();
             // cout << "tracking_and_counting() time : " << (time_end - time_start) / getTickFrequency() << endl;
@@ -723,6 +855,24 @@ void FrameHandler::paint_line(){
     line(frame, Point(0, belowline + thold_object_height), Point(frame.cols, belowline + thold_object_height), Scalar(255, 0, 0));
     line(frame, Point(0, belowline),                       Point(frame.cols, belowline),                       Scalar(255, 0, 0)); // BELOW LINE
     line(frame, Point(0, belowline - thold_object_height), Point(frame.cols, belowline - thold_object_height), Scalar(255, 0, 0));
+    
+    
+    /* frame count and box
+    stringstream ss;
+    rectangle(frame, Point(10, 2), Point(100,20), Scalar(255,255,255), -1);
+    ss << capture.get(CAP_PROP_POS_FRAMES);
+    string frameNumberString = ss.str();
+    putText(frame, frameNumberString.c_str(), Point(15, 15), FONT_HERSHEY_SIMPLEX, 0.5 , Scalar(0,0,0));
+    
+    rectangle(frame, Point(10, 20), Point(200, 40), Scalar(255, 255, 255), -1);
+    string dude = "COUNTER : " + to_string(counter);
+    putText(frame, dude, Point(15, 35), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
+    
+    rectangle(fgMaskMOG2, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
+    rectangle(frame, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
+    
+    rectangle(frame, Point(10, 40), Point( 10 + roi_width, 40 + roi_height), Scalar(255, 0, 0), 2);
+     */
 }
 
 int FrameHandler::recursive_ruler_x(uchar* ptr, int start, const int& interval){

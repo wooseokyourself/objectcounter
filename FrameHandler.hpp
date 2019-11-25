@@ -28,8 +28,6 @@ private:
   
 private:
     int thold_detect_time;
-    int history;
-    int varThreshold;
     
     int personMax;    /* (box < personMax) means 1명, (box > personMax) means 2명 */
     int counter;
@@ -39,15 +37,6 @@ private:
     Mat frame;
     Mat fgMaskMOG2;
     Ptr<BackgroundSubtractor> pMOG;
-
-    /*
-    Mat hsv; // for HSV in meanShift
-    Mat dst; // for HSV in meanShift
-    static float range_[]; // for HSV in meanShift
-    static const float* range[]; // for HSV in meanShift
-    static int histSize[]; // for HSV in meanShift
-    static int channels[]; // for HSV in meanShift
-    */
 
     int ratio;
     int thold_binarization;
@@ -74,15 +63,11 @@ private:
 private:
     int roi_width; /* min: 1, max: frame.cols/2 */
     int roi_height; /* min: 1, max: upperline*2 */
-    int roi_width_rate; /* min: 1, max: 100 */
-    int roi_height_rate; /* min: 1, max: 100 */
     double roi_width_rate_temp;
     double roi_height_rate_temp;
 
     int thold_object_width; /* min: 1, max: frame.cols/2 */
     int thold_object_height; /* min: 1, max: upperline*2 */
-    int thold_object_width_rate; /* min: 1, max: 100 */
-    int thold_object_height_rate; /* min: 1, max: 100 */
     double thold_object_width_rate_temp;
     double thold_object_height_rate_temp;
 
