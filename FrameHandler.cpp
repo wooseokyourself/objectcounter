@@ -6,6 +6,7 @@
 //
 
 #include "FrameHandler.hpp"
+#include <limits.h>
 
 int boxpt1x, boxpt1y, boxpt2x, boxpt2y;
 int mouseEventCount;
@@ -38,7 +39,7 @@ int calib(string videopath, int f, int min, int max){
     int subtract[7];
     int high = 0;
     int secondhigh = 0;
-    int low = 0;
+    int low = INT_MAX;
     int highidx = -1;
     int secondhighidx = -1;
     int lowidx = -1;
@@ -66,8 +67,18 @@ int calib(string videopath, int f, int min, int max){
                 exit(-1);
             }
             (*pMOG)->apply(*frame, *fgMaskMOG2);
+            
+            
+            /*
+             blur와 binarization 은 실제 프로그램 구동시의 설정과 동일하게.
+             set_Mask() 참고
+             */
+            /* blur 처리 */
             blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
+            /* Binarization threshold = 175 로 고정 */
             threshold(*fgMaskMOG2, *fgMaskMOG2, 175, 255, THRESH_BINARY);
+            
+            
             imshow("processing...", *fgMaskMOG2);
             // if(nowf%5 == 0) waitKey(0);
             if(nowf == f){
@@ -101,11 +112,14 @@ int calib(string videopath, int f, int min, int max){
     
     
     /* 종료조건 */
-    if(max - min < 10)
+    if(itv < 1.9)
         return var[highidx];
     
+    
+// subtract > 0 인 원소가 존재한다면..
+    
     /*
-     subtract > 0 조사.
+     subtract>0 인 원소와 subtract=0 인 원소가 서로 공존하는 경우.
      calib 호출시 subtract>0 인 값을 min 혹은 max로 그대로 넣으면 무한재귀에 빠지게 되므로
      itv/2 만큼 범위를 좁혀서 호출
      */
@@ -118,32 +132,51 @@ int calib(string videopath, int f, int min, int max){
         }
     }
     
+    /*
+     모든 원소가 subtract>0 인 경우.
+     (0~6 인덱스의 subtract 는 선형관계이기 때문에) 가장 subtract 값이 작은 인덱스와
+     그 바깥 범위(max-min 만큼 차이나는 곳의 값) 두 개를 가지고 재귀를 실행한다.
+     즉, 현재 재귀에서 탐색한 범위만큼을 더 subst가 작은 쪽으로 이동해서 탐색하는 것이다.
+     */
     if(subtract[0] > 0 && subtract[6] > 0){
         if(subtract[0] > subtract[6]){
-            return calib(videopath, f, var[6], max+var[6]);
+            return calib(videopath, f, var[6], (max-min)+var[6]);
         }
         else if(subtract[0] < subtract[6]){
-            return calib(videopath, f, min-var[0], var[0]);
+            return calib(videopath, f, (max-min)-var[0], var[0]);
         }
         else
             return std::max(calib(videopath, f, var[6], max+var[6]), calib(videopath, f, min-var[0], var[0]));
     }
-    /* 모두 0일 경우 */
+    
+    /*
+     모두 0일 경우;
+     --> 잘못됨. 모든 원소가 subtract=0 일 경우는 밑의 코드로 바로 넘어가러 처리될 수 있음.
     else if(subtract[0] == 0 && subtract[6] == 0){
         return calib(videopath, f, std::min(var[secondhighidx], var[highidx]), std::max(var[secondhighidx], var[highidx]));
     }
+     */
     
-    /* 선형그래프일 경우 */
-    if(lowidx == 0 && highidx == 6){
+    
+    
+// 모든 원소가 subtract=0 이라면...
+    /*
+        각 그래프의 x축은 0~6의 index이며, y축은 inbox의 값을 의미.
+        사실 볼록그래프, 혹은 오목그래프일 수는 없다. varThreshold와 inbox 값은 선형관계이기 때문이다.
+        그럼에도 혹시 몰라서 모든 그래프의 케이스에 대응해야 하기 때문에 볼록 및 오목인 경우를 고려하였다.
+     */
+    
+    /* inbox가 선형그래프일 경우 */
+    if(lowidx == 0 && highidx == 6){ // highidx가 6이라면, 자연히 high = max 가 성립.
         cout << "선형그래프!" << endl;
         return calib(videopath, f, max, max+(max-min)/2);
     }
-    else if(lowidx == 6 && highidx == 0){
+    else if(lowidx == 6 && highidx == 0){ // highidx가 0이라면, 자연히 high = min 이 성립.
         cout << "선형그래프!" << endl;
         return calib(videopath, f, min-(max-min)/2, min);
     }
     
-    /* 볼록그래프일 경우 */
+    /* inbox가 볼록그래프일 경우 */
     else if(0 < highidx && highidx < 6){
         cout << "볼록그래프!" << endl;
         return calib(videopath, f, var[highidx-1], var[highidx+1]);
@@ -196,11 +229,7 @@ int calib_init(string videopath){
             cout << "video is over" << endl;
             break;
         }
-        cout << "read success" << endl;
-        
         outputVideo.write(frame);
-        cout << "write success" << endl;
-        
         imshow("optimization", frame);
     }
     inputVideo.release();
@@ -218,7 +247,7 @@ int calib_init(string videopath){
     return calib(videopath, f, 1, 50);
 }
 
-FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), thold_binarization(175)
+FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0),  thold_binarization(175)
 {
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
@@ -795,18 +824,9 @@ void FrameHandler::fitBox(DetectedObject &roi){
 
 
 /*
-void FrameHandler::setup_roi_of_latest_obj(){ // for HSV in meanShift
-    // referenced from docs.opencv.org/3.4/d7/d00/tutorial_meanshift.html
-    // set up the ROI for tracking
-    DetectedObject& obj = Objects.back();
-    obj.reset();
-    if(!(0 <= obj.x && 0 <= obj.width && obj.x + obj.width <= frame.cols && 0 <= obj.y && 0 <= obj.height && obj.y + obj.height <= frame.rows)){
-        return;
-    }
-    obj.roi = frame(obj.box);
-    cvtColor(obj.roi, obj.hsv_roi, COLOR_BGR2HSV);
-    inRange(obj.hsv_roi, Scalar(0, 60, 32), Scalar(180, 255, 255), obj.mask);
-    calcHist(&obj.hsv_roi, 1, channels, obj.mask, obj.roi_hist, 1, histSize, range);
-    normalize(obj.roi_hist, obj.roi_hist, 0, 255, NORM_MINMAX);
+    calib() 에서 매 var의 inbox 계산마다 그 inbox의 값과 subst>0 의 여부를 여기로 보낸다.
+    그럼 여기에서는 매번 인자를 받을 때마다 멤버변수 personMax의 값을 갱신시킨다.
+ */
+void FrameHandler::assumePersonRate(bool zerosubst, int rate){
+    personMax = (personMax + rate) / 2;
 }
-*/
