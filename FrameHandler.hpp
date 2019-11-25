@@ -95,7 +95,7 @@ protected:
     int recursive_ruler_x(uchar* ptr, int start, const int& interval);
     void MakeBox(int center_x, int center_y);
     void fitBox(DetectedObject& roi); /* Make roi to fit for its blob */
-    void assumePersonRate(bool zerosubst, int rate);
+    void extractBox(DetectedObject& roi); /* Extract the box if white blobs exists right beside the barrier of the box. */
 };
 
 #endif /* FrameHandler_hpp */
