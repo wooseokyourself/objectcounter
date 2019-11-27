@@ -37,6 +37,7 @@ void callback_setBox(int event, int x, int y, int flags, void *userdata){
  7개의 시퀀스를 세분화하여 i 는 subtract = 0 이고 i+1 혹은 i-1 이 subtract > 0 인 경우의 var[i]
  를 varThreshold 값으로 리턴되게 하였으나, 이렇게 할 경우 foreground가 출력되고 안되고의 경계가 위태위태해서
  binarization = 240 으로 올렸다.
+  >> 여기 binarization 을 올리지 말고, varThreshold 값을 더 올리는게 맞을 것 같다.
  */
 int calib(string videopath, int f, int min, int max, int& personMax){
     cout << "calib func (" << min << ", " << max << ")" << endl;
@@ -70,7 +71,6 @@ int calib(string videopath, int f, int min, int max, int& personMax){
     int secondhighidx = -1;
     int lowidx = -1;
     bool morethanzero[7];
-    bool allzero = true;
     
     int sumDiffVars = 0; /* var[i] - var[i-1] 의 합 (i=0~6) */
     int sumDiffSubtracts = 0; /* subtract[i-1] - subtract[i] 의 합 (i=0~6) */
@@ -85,7 +85,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         namedWindow("processing...");
         inputVideo->open(videopath);
         Size size = Size((int)inputVideo->get(CAP_PROP_FRAME_WIDTH), (int)inputVideo->get(CAP_PROP_FRAME_HEIGHT));
-        *pMOG = createBackgroundSubtractorMOG2(500, var[i], true);
+        *pMOG = createBackgroundSubtractorMOG2(100, var[i], true);
         nowf = 0;
         
         cout << "idx: " << i << "| var: " << var[i] << ", ";
@@ -104,8 +104,8 @@ int calib(string videopath, int f, int min, int max, int& personMax){
              */
             /* blur 처리 */
             blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
-            /* Binarization threshold = 175 로 고정 */
-            threshold(*fgMaskMOG2, *fgMaskMOG2, 175, 255, THRESH_BINARY);
+            /* Binarization threshold = 100 로 고정 */
+            threshold(*fgMaskMOG2, *fgMaskMOG2, 100, 255, THRESH_BINARY);
             
             
             imshow("processing...", *fgMaskMOG2);
@@ -125,11 +125,34 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                 }
                 subtract[i] = countNonZero(*fgMaskMOG2) - inbox[i];
                 cout << subtract[i] << endl;
-                if(subtract[i] > 0){
+                if(subtract[i] > 0)
                     morethanzero[i] = true;
-                    allzero = false;
+                else
+                    morethanzero[i] = false;
+                
+                /* subtract[왼쪽] > 0 && subtract[오른쪽] = 0 이라면 여기에서 바로 그 두개를 가지고 재귀호출 */
+                if(i>0 && morethanzero[i-1] && !morethanzero[i]){
+                    /* personMax 갱신 */
+                    if(personMax == 0){
+                        personMax = (inbox[i-1] + inbox[i]) / 2;
+                    }
+                    else{
+                        personMax = (personMax + ((inbox[i-1] + inbox[i]) / 2)) / 2;
+                    }
+                    
+                    delete frame;
+                    delete fgMaskMOG2;
+                    delete pMOG;
+                    delete inputVideo;
+                    
+                    if(max-min <= 7){ /* 종료조건 */
+                        if(morethanzero[i])
+                            return var[i+1];
+                        else
+                            return var[i];
+                    }
+                    return calib(videopath, f, var[i-1], var[i], personMax);
                 }
-                else morethanzero[i] = false;
                 break;
             }
         }
@@ -145,25 +168,9 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         }
     }
     
-    
-    
-    /*
-     [알고리즘]
-     
-     0이 아닌 subst가 있는가? --> 각 원소의 간격(itv)이 충분히 짧은가? --> 그래프가 어느 쪽으로 상승하는가?
-     
-     */
-    
-    
-// subtract > 0 인 원소가 존재한다면..
     /*
      모든 원소가 subtract>0 인 경우.
-     (0~6 인덱스의 subtract 는 선형관계이기 때문에) 가장 subtract 값이 작은 인덱스와
-     그 바깥 범위(max-min 만큼 차이나는 곳의 값) 두 개를 가지고 재귀를 실행한다.
-     즉, 현재 재귀에서 탐색한 범위만큼을 더 subst가 작은 쪽으로 이동해서 탐색하는 것이다.
-     
-     여기 보강하기!!!
-     공책에 메모한 내용을 기반으로, 더욱 빨리 0인 구간을 찾도록.
+     0~6 인덱스의 subtract 는 반비례관계이다.
      
      6개 시퀀스에 대해, (var[i+1] - var[i]) 의 평균을 aver(diff(var)) 이라고 하자. (=V)
      또한, (subtract[i+1] - subtract[i]) 의 평균을 aver(diff(subtract)) 라고 하자. (=S)
@@ -192,7 +199,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         int k = round(subtract[6] / S);
         if(subtract[0] > subtract[6]){
             // return calib(videopath, f, var[6], (max-min)+var[6], personMax);
-            return calib(videopath, f, (var[6]+V*(k-1)), (var[6]+V*(k+1)), personMax);
+            return calib(videopath, f, (var[6] + (V*(k-1))), (var[6] + (V*(k+1))), personMax);
         }
         else if(subtract[0] < subtract[6]){
             cout << "뭔가 이상한데용? 어떻게 subtract[6]이 subtract[0]보다 더 클 수 있죠?" << endl;
@@ -210,81 +217,18 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         }
     }
     
-    
     /*
-     subtract>0 인 원소와 subtract=0 인 원소가 서로 공존하는 경우.
-     calib 호출시 subtract>0 인 값을 min 혹은 max로 그대로 넣으면 무한재귀에 빠지게 되므로
-     itv/2 만큼 범위를 좁혀서 호출
-     */
-    for(int i=0; i<6; i++){
-        if((morethanzero[i] && !morethanzero[i+1]) || (!morethanzero[i] && morethanzero[i+1])){
-            /* personMax 갱신 */
-            if(personMax == 0){
-                personMax = (inbox[i] + inbox[i+1]) / 2;
-            }
-            else{
-                personMax = (personMax + ((inbox[i] + inbox[i+1]) / 2)) / 2;
-            }
-            
-            if(max-min <= 7){ /* 종료조건 */
-                if(morethanzero[i])
-                    return var[i+1];
-                else
-                    return var[i];
-            }
-            
-            if(morethanzero[i]) // subtract[왼쪽] > 0 && subtract[오른쪽] = 0
-                return calib(videopath, f, var[i]+(var[i+1]-var[i])/2, var[i+1], personMax);
-            else if(!morethanzero[i]) // subtract[왼쪽] = 0 && subtract[오른쪽] > 0
-                return calib(videopath, f, var[i], var[i+1]-(var[i+1]-var[i])/2, personMax);
-        }
-        
-    }
-        
-    if(max-min <= 7){  /* 종료조건, max-min < 7 */
-        if(allzero)
-            return var[highidx];
-        else{ /* allzero = false 라면 highidx.subst > 0 임이 자명하다. */
-            if(subtract[secondhighidx] == 0)
-                return var[secondhighidx];
-            else{
-                if(highidx == 0)
-                    return var[6];
-                else if(highidx == 6)
-                    return var[0];
-                else{
-                    cout << "이런 경우는 본적이 없네요." << endl;
-                    exit(-1);
-                }
-            }
-        }
-    }
-    
-    /*
-     모두 0일 경우;
-     --> 잘못됨. 모든 원소가 subtract=0 일 경우는 밑의 코드로 바로 넘어가러 처리될 수 있음.
-    else if(subtract[0] == 0 && subtract[6] == 0){
-        return calib(videopath, f, std::min(var[secondhighidx], var[highidx]), std::max(var[secondhighidx], var[highidx]));
-    }
-     */
-    
-    
-    
-// 모든 원소가 subtract=0 이라면...
-    /*
+        모든 원소가 subtract=0 인 경우.
         각 그래프의 x축은 0~6의 index이며, y축은 inbox의 값을 의미.
         사실 볼록그래프, 혹은 오목그래프일 수는 없다. varThreshold와 inbox 값은 선형관계이기 때문이다.
-        그럼에도 혹시 몰라서 모든 그래프의 케이스에 대응해야 하기 때문에 볼록 및 오목인 경우를 고려하였다.
      */
-    
-    /* inbox가 선형그래프일 경우 */
-    if(lowidx == 0 && highidx == 6){ // highidx가 6이라면, 자연히 high = max 가 성립.
-        cout << "선형그래프!" << endl;
-        return calib(videopath, f, max, max+(max-min)/2, personMax);
-    }
-    else if(lowidx == 6 && highidx == 0){ // highidx가 0이라면, 자연히 high = min 이 성립.
-        cout << "선형그래프!" << endl;
-        return calib(videopath, f, min-(max-min)/2, min, personMax);
+    if(lowidx == 0 && highidx == 6){
+        if(max-min <= 7){
+            return var[highidx];
+        }
+        else{
+            return calib(videopath, f, max, max+(max-min)/2, personMax);
+        }
     }
     else{
         cout << "이건 예정에 없던 그래프인데용?" << endl;
@@ -342,35 +286,19 @@ int calib_init(string videopath, int& personMax){
     cout << "set pt2(" << boxpt2x << "," << boxpt2y << ")" << endl;
     
     /* calib 재귀 초귀 inputs: 1(min), 50(max) */
-    return calib(videopath, f, 1, 50, personMax);
+    return calib(videopath, f, 1, 500, personMax);
 }
 
-FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0),  thold_binarization(175)
+FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0),  thold_binarization(100)
 {
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
     
     /* MOG2 파라미터 */
-    int history = 500;
+    int history = 100;
     int varThreshold = calib_init(videopath, personMax);
     cout << "varThreshold: " << varThreshold << endl;
     cout << "personMax   : " << personMax << endl;
-    
-    /* ROI size 지정 */
-    roi_width = boxpt2x - boxpt1x;
-    roi_height = boxpt2y - boxpt1y;
-    if(roi_width <= 0 || roi_height <= 0){
-        cout << "왜 roi 가 지정이 안됐어??" << endl;
-        exit(-1);
-    }
-    cout << "roi_width : " << roi_width << endl;
-    cout << "roi_height: " << roi_height << endl;
-    
-    /* 흰색blob 탐색시 사용될 최소기준값 지정 */
-    thold_object_width = round(roi_width / 20);
-    thold_object_height = round(roi_height / 20);
-    cout << "obj_width : " << thold_object_width << endl;
-    cout << "obj_height: " << thold_object_height << endl;
     
     if(capture_type == 1)
         capture.open(videopath);
@@ -384,8 +312,7 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     /* 몇 프레임마다 detect를 시행할 것인지를 결정하는 변수 지정 */
     double fps = capture.get(CAP_PROP_FPS); // 현재 영상의 fps
     cout << "FPS: " << fps << endl;
-    // thold_detect_time = fps/5;
-    thold_detect_time = 1;
+    thold_detect_time = fps/7;
     cout << "Detecting per " << thold_detect_time << " frames." << endl;
         
     pMOG = createBackgroundSubtractorMOG2(history, varThreshold, true);
@@ -395,6 +322,26 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     namedWindow("FG Mask MOG 2");
     
     capture >> frame;
+    
+    /* ROI size 지정 */
+    roi_width = (boxpt2x - boxpt1x) * 2;
+    roi_height = (boxpt2y - boxpt1y) * 2;
+    if(roi_width > frame.cols)
+        roi_width = frame.cols;
+    if(roi_height > frame.rows)
+        roi_height = frame.rows;
+    if(roi_width <= 0 || roi_height <= 0){
+        cout << "왜 roi 가 지정이 안됐어??" << endl;
+        exit(-1);
+    }
+    cout << "roi_width : " << roi_width << endl;
+    cout << "roi_height: " << roi_height << endl;
+    
+    /* 흰색blob 탐색시 사용될 최소기준값 지정 */
+    thold_object_width = round(roi_width / 25);
+    thold_object_height = round(roi_height / 25);
+    cout << "obj_width : " << thold_object_width << endl;
+    cout << "obj_height: " << thold_object_height << endl;
     
     cout << "Video : " << frame.cols << " X " << frame.rows << endl;
     
@@ -512,8 +459,9 @@ bool FrameHandler::Play(){
         pMOG->apply(frame, fgMaskMOG2);
         set_Mask();
         
+        check_endpoint();
+        
         if(totalframe % thold_detect_time == 0){
-            check_endpoint();
             detection();
         }
         tracking_and_counting();
@@ -585,7 +533,14 @@ void FrameHandler::check_endpoint(){
         if(totalframe - Objects[k].frame > thold_detect_time*10){
             // This "if" checks the difference between "object's frame" from "total frame".
             // this difference helps to prevent not removing the box which created just now.
-            Objects[k].reset(fgMaskMOG2);
+            
+            /*
+            Objects[k].reset(personMax, fgMaskMOG2, roi_width, roi_height);
+             check_endpoint가 detect() 처럼 매 프레임 실행되는게 아니라면 이 reset이 필요하지만,
+             현재 구현은 check_endpoint를 매 프레임에 실행되도록 해두었으므로 reset이 필요 없다.
+             왜냐하면 tracking_and_counting() 에서 reset을 해주기 때문이다.
+             */
+            
             if(Objects[k].center_y <= upperline /*Down-to-Top*/ || Objects[k].center_y >= belowline  /*Top-to-Down*/
                || Objects[k].y == 0 || Objects[k].y + Objects[k].height == frame.rows){
                 if(Objects.size() != 0)
@@ -619,6 +574,7 @@ void FrameHandler::check_endpoint(){
 // (이하는 일시적인 조명 등으로 box가 잘못생성된 것들을 제거)
         fitBox(Objects[k]);
         extractBox(Objects[k]);
+        Objects[k].reset(personMax, fgMaskMOG2, roi_width, roi_height);
         
         /* 너비 밑 높이가 비정상적으로 큰 box 제거 */
         if(Objects[k].width > roi_width*2 || Objects[k].height > roi_height*2){
@@ -822,41 +778,32 @@ void FrameHandler::tracking_and_counting(){
             
             meanShift(fgMaskMOG2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
             rectangle(frame, Objects[i].box, Scalar(0, 255, 0), 3);
-            Objects[i].reset(fgMaskMOG2);
+            Objects[i].reset(personMax, fgMaskMOG2, roi_width, roi_height);
             /////////////////////////////////////////////////////////////////////////////////////
             
-            area = to_string(Objects[i].area);
+            area = to_string(Objects[i].area) + ", NUMBER: " + to_string(Objects[i].peoplenumber);
             
-            rectangle(frame, Point(Objects[i].x, Objects[i].y), Point(Objects[i].x + 50, Objects[i].y + 18), Scalar(255,255,255), -1);
+            
+            rectangle(frame, Point(Objects[i].x, Objects[i].y), Point(Objects[i].x + 50, Objects[i].y + 25), Scalar(255,255,255), -1);
             putText(frame, area, Point(Objects[i].x, Objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
             
+            
+            
             if( (Objects[i].position == upper_area) && (Objects[i].center_y > midline) ){
-                if( countNonZero(Mat(fgMaskMOG2, Objects[i].box) < personMax)){ /* 사람 수 추정 */
-                    Objects[i].peoplenumber = 1;
-                }
-                else{
-                    Objects[i].peoplenumber = 2;
-                }
                 Objects[i].position = below_area;
                 if(inside == upper_area)
                     counter -= Objects[i].peoplenumber;
                 else
                     counter += Objects[i].peoplenumber;
-                cout << "\t >> IN : " << Objects[i].peoplenumber << endl;
+                cout << "\t >> IN : " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << personMax <<endl;
             }
             if( (Objects[i].position == below_area) && (Objects[i].center_y < midline) ){
-                if( countNonZero(Mat(fgMaskMOG2, Objects[i].box) < personMax)){ /* 사람 수 추정 */
-                    Objects[i].peoplenumber = 1;
-                }
-                else{
-                    Objects[i].peoplenumber = 2;
-                }
                 Objects[i].position = upper_area;
                 if(inside == upper_area)
                     counter += Objects[i].peoplenumber;
                 else
                     counter -= Objects[i].peoplenumber;
-                cout << "\t >> OUT: " << Objects[i].peoplenumber << endl;
+                cout << "\t >> OUT: " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << personMax <<endl;
             }
             // time_end = getTickCount();
             // cout << "tracking_and_counting() time : " << (time_end - time_start) / getTickFrequency() << endl;
@@ -915,7 +862,7 @@ void FrameHandler::MakeBox(int center_x, int center_y){
     If does, return (not making a new box). */
     
     if(Objects.size() > 0){
-        Objects.back().reset(fgMaskMOG2);
+        Objects.back().reset(personMax, fgMaskMOG2, roi_width, roi_height);
         if(abs(Objects.back().center_y - center_y) < roi_height/2 && abs(Objects.back().center_x - center_x) < roi_width ){
             return;
         }
@@ -958,181 +905,252 @@ void FrameHandler::MakeBox(int center_x, int center_y){
     else{
         Objects.push_back( DetectedObject(box, totalframe, below_area) );
     }
-    fitBox(Objects.back());
-    extractBox(Objects.back());
+    DetectedObject *BoundingBox = &(Objects.back());
+    fitBox(*BoundingBox);
+    extractBox(*BoundingBox);
+    BoundingBox->reset(personMax, fgMaskMOG2, roi_width, roi_height);
 }
 
 void FrameHandler::fitBox(DetectedObject &roi){
     Rect& box = roi.box;
     
+    // bool workA, workB;
+    
     /* 세로 줄 조정 */
-    bool flagA, flagB = false;
+    bool flagA = false;
+    bool flagB = false;
     while(!flagA || !flagB){
-        /*
-        if(box.x < 0)
-            {box.x = 0; flagA = true; cout << "fit1_1" << endl;}
-        if(box.width > frame.cols || box.width <= 0)
-            {box.width = frame.cols; flagB = true; cout << "fit1_2" << endl;}
-        if(box.x + box.width > frame.cols)
-            {box.width -= (box.x + box.width) - frame.cols; flagA = true; flagB = true; cout << "fit1_3" << endl; break;}
-         */
-        if(box.y <= 0 || box.height > frame.rows || box.y + box.height > frame.rows
-            || box.x <= 0 || box.width <= 0 || frame.cols <= box.x+box.width){ // box가 범위를 벗어날 경우 할 필요가 없음
-            cout << "fix1_break!" << endl;
-            break;
+        // cout << "fit1" << endl;
+        /* 줄이고자 하는 줄이 프레임 밖을 벗어났을 경우, 그 줄을 프레임 안으로 지정하고 줄이기 수행 */
+        if(box.x < 0){
+            box.x = 0;}
+        if(box.x >= frame.cols){
+            box.x = frame.cols; break;}
+        if(box.width <= 0){
+            box.width = 1; break;}
+        if(box.width >= frame.cols)
+            box.width = frame.cols;
+        if(box.x + box.width >= frame.cols)
+            box.width = (frame.cols - box.x) - 1;
+        if(box.y < 0){
+            box.y = 0; break;}
+        if(box.y >= frame.rows){
+            box.y = frame.rows; break;}
+        if(box.height <= 0){
+            box.height = 1; break;}
+        if(box.height >= frame.rows)
+            box.height = frame.rows;
+        if(box.y + box.height >= frame.rows)
+            box.height = (frame.rows - box.y) - 1;
+
+        
+        /* flag = false 이면 땡겨야 한다. */
+        for(int i=box.y; i<box.y + box.height; i++){
+            if(!flagA){
+                if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
+                    flagA = true;
+                }
+            }
+            if(!flagB){
+                if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
+                    flagB = true;
+                }
+            }
+            if(flagA && flagB)
+                break;
         }
-        else{
-            cout << "fix1" << endl;
-            for(int i=box.y; i<box.y + box.height; i++){
-                if(!flagA && (box.x > 0)){
-                    if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
-                        flagA = true;
-                    }
-                }
-                if(!flagB && (box.x + box.width <= frame.cols)){
-                    if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
-                        flagB = true;
-                    }
-                }
-                if((flagA && flagB) || i < 0){
-                    flagA = flagB = true;
-                    break;
-                }
-            }
-            if(!flagA && box.x > 0){ /* 좌측 줄 땡기기 */
-                box.x += 1;
-                box.width -= 1;
-            }
-            if(!flagB && box.x + box.width <= frame.cols){ /* 우측 줄 땡기기 */
-                box.width -= 1;
-            }
+        if(box.width <= 0)
+            break;
+        if(!flagA){ /* 좌측 줄 땡기기 */
+            box.x += 1;
+            box.width -= 1;
+        }
+        if(!flagB){ /* 우측 줄 땡기기 */
+            box.width -= 1;
         }
     }
     
     /* 가로 줄 조정 */
-    flagA, flagB = false;
+    flagA = flagB = false;
     while(!flagA || !flagB){
-        /*
-        if(box.y < 0)
-            {box.y = 0; flagA = true; cout << "fit2_1" << endl;}
-        if(box.height > frame.rows || box.height <= 0)
-            {box.height = frame.rows; flagB = true; cout << "fit2_2" << endl;}
-        if(box.y + box.height > frame.rows)
-            {box.height -= (box.y + box.height) - frame.rows; flagA=true; flagB=true; cout << "fit2_3" << endl; break;}
-         */
-        if(box.y <= 0 || box.height > frame.rows || box.y + box.height > frame.rows
-            || box.x <= 0 || box.width <= 0 || frame.cols <= box.x+box.width){
-            cout << "fix2_break!" << endl;
-            break;
+        // cout << "fit2" << endl;
+        /* 줄이고자 하는 줄이 프레임 밖을 벗어났을 경우, 그 줄을 프레임 안으로 지정하고 줄이기 수행 */
+        if(box.x < 0){
+            box.x = 0; break;}
+        if(box.x >= frame.cols){
+            box.x = frame.cols; break;}
+        if(box.width <= 0){
+            box.width = 1; break;}
+        if(box.width >= frame.cols)
+            box.width = frame.cols;
+        if(box.x + box.width >= frame.cols)
+            box.width = (frame.cols - box.x) - 1;
+        if(box.y < 0){
+            box.y = 0; break;}
+        if(box.y >= frame.rows){
+            box.y = frame.rows; break;}
+        if(box.height <= 0){
+            box.height = 1; break;}
+        if(box.height >= frame.rows)
+            box.height = frame.rows;
+        if(box.y + box.height >= frame.rows)
+            box.height = (frame.rows - box.y) - 1;
+        
+        /* flag = true 가 한번이라도 있으면 땡기지 않아도 된다. */
+        for(int i=box.x; i<box.x + box.width; i++){
+            if(!flagA){
+                if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
+                    flagA = true;
+                }
+            }
+            if(!flagB){
+                if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
+                    flagB = true;
+                }
+            }
+            if(flagA && flagB)
+                break;
         }
-        else{
-            cout << "fix2" << endl;
-            for(int i=box.x; i<box.x + box.width; i++){
-                if(!flagA && (box.y > 0)){
-                    if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
-                        flagA = true;
-                    }
-                }
-                if(!flagB && (box.y + box.height <= frame.rows) ){
-                    if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
-                        flagB = true;
-                    }
-                }
-                if((flagA && flagB) || i < 0){
-                    flagA = flagB = true;
-                    break;
-                }
-            }
-            if(!flagA && box.y > 0){ /* 상단 줄 땡기기 */
-                box.y += 1;
-                box.height -= 1;
-            }
-            if(!flagB && box.y + box.height <= frame.rows){ /* 하단 줄 땡기기 */
-                box.height -= 1;
-            }
+        if(box.height <= 0)
+            break;
+        if(!flagA){ /* 상단 줄 땡기기 */
+            box.y += 1;
+            box.height -= 1;
+        }
+        if(!flagB){ /* 하단 줄 땡기기 */
+            box.height -= 1;
         }
     }
-    
-    roi.reset(fgMaskMOG2);
 }
 
 void FrameHandler::extractBox(DetectedObject &roi){
     Rect& box = roi.box;
     
     /* 세로 줄 조정 */
+    
+    /* work flag는, 늘리고자 하는 줄이 프레임 밖을 벗어날 경우 수행을 멈추기 위함이다.
+     while문에서 (box.x < 0 || box.x + box.width > frame.cols) 로 실행조건을 하지 않는 이유는,
+     box.x <= 0 이라고 하더라도 box.width는 더 늘릴 수 있는 상황이 있을 수도 있기 때문이다.
+     그러므로 대신 workA, workB 플래그를 이용한다. */
+    bool workA = true; // for x ; 좌측 세로줄
+    bool workB = true; // for width ; 우측 세로줄
+    
     bool flagA = true;
     bool flagB = true;
-    while(flagA || flagB){
-        if(box.y <= 0 || box.height > frame.rows || box.y + box.height > frame.rows
-            || box.x <= 0 || box.width <= 0 || frame.cols <= box.x+box.width){ // box가 범위를 벗어날 경우 할 필요가 없음
-            cout << "ext1_break!" << endl;
+    while((workA || workB) && (flagA || flagB)){
+        // cout << "ext1" << endl;
+        /* 줄이고자 하는 줄이 프레임 밖을 벗어났을 경우, 그 줄을 프레임 안으로 지정하고 줄이기 수행 */
+        if(box.x <= 0){
+            box.x = 0; workA=false;
+        }
+        if(box.x >= frame.cols){
+            box.x = frame.cols; break;
+        }
+        if(box.width <= 0){ // 넓이의 경우 1로 조정하면 그 이후 extract를 진행할 수 있음.
+            box.width = 1; break;
+        }
+        if(box.width >= frame.cols){
+            box.width = frame.cols; workB=false;
+        }
+        if(box.x + box.width >= frame.cols){
+            box.width -= box.x + box.width - frame.cols; workB=false;
+        }
+        if(box.y <= 0)
+            box.y = 0;
+        if(box.y >= frame.rows)
+            box.y = frame.rows - 1;
+        if(box.height <= 0){
+            box.height = 1;
+        }
+        if(box.height >= frame.rows)
+            box.height = frame.rows;
+        if(box.y + box.height >= frame.rows)
             break;
+        
+        flagA = flagB = false;
+        /* flag = true 이면 늘려야 한다. */
+        for(int i=box.y; i<box.y + box.height; i++){
+            if(workA && !flagA){
+                if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
+                    flagA = true;
+                }
+            }
+            if(workB && !flagB){
+                if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
+                    flagB = true;
+                }
+            }
+            if(flagA && flagB)
+                break;
         }
-        else{
-            cout << "ext1" << endl;
-            flagA = flagB = false;
-            for(int i=box.y; i<box.y + box.height; i++){
-                if(!flagA && (box.x > 0)){
-                    if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
-                        flagA = true;
-                    }
-                }
-                if(!flagB && (box.x + box.width <= frame.cols)){
-                    if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
-                        flagB = true;
-                    }
-                }
-                if((flagA && flagB) || i < 0){
-                    flagA = flagB = false;
-                    break;
-                }
-            }
-            if(flagA && box.x > 0){ /* 좌측 줄 늘리기 */
-                box.x -= 1;
-                box.width += 1;
-            }
-            if(flagB && box.x + box.width <= frame.cols){ /* 우측 줄 늘리기 */
-                box.width += 1;
-            }
+        if(box.width <= 1)
+            break;
+        if(workA && flagA){ /* 좌측 줄 늘리기 */
+            box.x -= 1;
+            box.width += 1;
         }
+        if(workB && flagB){ /* 우측 줄 늘리기 */
+            box.width += 1;
+        }
+
     }
     
     /* 가로 줄 조정 */
+    workA = workB = true;
     flagA = flagB = true;
-    while(flagA || flagB){
-        if(box.y <= 0 || box.height > frame.rows || box.y + box.height > frame.rows
-            || box.x <= 0 || box.width <= 0 || frame.cols <= box.x+box.width){
-            cout << "ext2_break!" << endl;
+    while((workA || workB) && (flagA || flagB)){
+        // cout << "ext2" << endl;
+        /* 줄이고자 하는 줄이 프레임 밖을 벗어났을 경우, 그 줄을 프레임 안으로 지정하고 줄이기 수행 */
+        
+        if(box.x < 0)
+            box.x = 0;
+        if(box.x >= frame.cols)
+            box.x = frame.cols - 1;
+        if(box.width <= 0)
+            box.width = 1;
+        if(box.width >= frame.cols)
+            box.width = frame.cols;
+        if(box.x + box.width >= frame.cols)
             break;
+        if(box.y <= 0){
+            box.y = 0; workA=false;
         }
-        else{
-            cout << "ext2" << endl;
-            flagA = flagB = false;
-            for(int i=box.x; i<box.x + box.width; i++){
-                if(!flagA && (box.y > 0)){
-                    if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
-                        flagA = true;
-                    }
-                }
-                if(!flagB && (box.y + box.height <= frame.rows)){
-                    if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
-                        flagB = true;
-                    }
-                }
-                if((flagA && flagB) || i < 0){
-                    flagA = flagB = false;
-                    break;
+        if(box.y >= frame.rows){
+            box.y = frame.rows; break;
+        }
+        if(box.height <= 0){
+            box.height = 1; break;
+        }
+        if(box.height >= frame.rows){
+            box.height = frame.rows; workB=false;
+        }
+        if(box.y + box.height >= frame.rows){
+            box.height -= box.y + box.height - frame.rows; workB=false;
+        }
+        
+        flagA = flagB = false;
+        for(int i=box.x; i<box.x + box.width; i++){
+            if(workA && !flagA){
+                if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
+                    flagA = true;
                 }
             }
-            if(flagA && box.y > 0){ /* 상단 줄 늘리기 */
-                box.y -= 1;
-                box.height += 1;
+            if(workB && !flagB){
+                if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
+                    flagB = true;
+                }
             }
-            if(flagB && box.y + box.height <= frame.rows){ /* 하단 줄 늘리기 */
-                box.height += 1;
-            }
+            if(flagA && flagB)
+                break;
+        }
+        if(box.height <= 1)
+            break;
+        if(workA && flagA){ /* 상단 줄 늘리기 */
+            box.y -= 1;
+            box.height += 1;
+        }
+        if(workB && flagB){ /* 하단 줄 늘리기 */
+            box.height += 1;
         }
     }
-    
-    roi.reset(fgMaskMOG2);
 }
