@@ -8,6 +8,9 @@
 #include "FrameHandler.hpp"
 #include <limits.h>
 
+#define THOLD_BIN 100   /* for threshold of Binarization. */
+#define THOLD_HISTORY 100   /* for MOG2 */
+
 /*
  이 값은 calibration에서 마우스이벤트로 초기화되고,
  그 값을 그대로 MakeBox에서 roi_width, roi_height 를 결정하는데에 쓰인다.
@@ -85,7 +88,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         namedWindow("processing...");
         inputVideo->open(videopath);
         Size size = Size((int)inputVideo->get(CAP_PROP_FRAME_WIDTH), (int)inputVideo->get(CAP_PROP_FRAME_HEIGHT));
-        *pMOG = createBackgroundSubtractorMOG2(100, var[i], true);
+        *pMOG = createBackgroundSubtractorMOG2(THOLD_HISTORY, var[i], true);
         nowf = 0;
         
         cout << "idx: " << i << "| var: " << var[i] << ", ";
@@ -105,7 +108,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
             /* blur 처리 */
             blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
             /* Binarization threshold = 100 로 고정 */
-            threshold(*fgMaskMOG2, *fgMaskMOG2, 100, 255, THRESH_BINARY);
+            threshold(*fgMaskMOG2, *fgMaskMOG2, THOLD_BIN, 255, THRESH_BINARY);
             
             
             imshow("processing...", *fgMaskMOG2);
@@ -287,13 +290,12 @@ int calib_init(string videopath, int& personMax){
     return calib(videopath, f, 1, 500, personMax);
 }
 
-FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0),  thold_binarization(100)
+FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0)
 {
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
     
     /* MOG2 파라미터 */
-    int history = 100;
     int varThreshold = calib_init(videopath, personMax);
     cout << "varThreshold: " << varThreshold << endl;
     cout << "personMax   : " << personMax << endl;
@@ -313,7 +315,7 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     thold_detect_time = fps/7;
     cout << "Detecting per " << thold_detect_time << " frames." << endl;
         
-    pMOG = createBackgroundSubtractorMOG2(history, varThreshold, true);
+    pMOG = createBackgroundSubtractorMOG2(THOLD_HISTORY, varThreshold, true);
     // pMOG = createBackgroundSubtractorMOG2(500, 16, false);
     
     namedWindow("Frame");
@@ -336,8 +338,8 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     cout << "roi_height: " << roi_height << endl;
     
     /* 흰색blob 탐색시 사용될 최소기준값 지정 */
-    thold_object_width = round(roi_width / 25);
-    thold_object_height = round(roi_height / 25);
+    thold_object_width = round(roi_width / 50);
+    thold_object_height = round(roi_height / 50);
     cout << "obj_width : " << thold_object_width << endl;
     cout << "obj_height: " << thold_object_height << endl;
     
@@ -397,7 +399,9 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
         because when the ROI generated, its center_y will be on the upperline or below line.
      */
     
+    /* 이진화 변수는 고정 (175)
     createTrackbar("Binarization", "FG Mask MOG 2", &thold_binarization, 255);
+     */
     
     
     pMOG->apply(frame, fgMaskMOG2);
@@ -444,9 +448,6 @@ bool FrameHandler::Play(){
         if(waitKey(1) == 'q'){
             break;
         }
-        if(thold_binarization == 0){ // reboot the program
-            return false;
-        }
         capture >> frame;
         if(frame.empty()){
             cout << "Unable to read next frame." << endl;
@@ -478,7 +479,6 @@ bool FrameHandler::Play(){
         
         if(totalframe % 50 == 0){ // THIS IS FOR DEBUGGING
             // cout << "===============================" << endl;
-            // cout << "Binarization : " << thold_binarization << endl;
             // cout << "Obj Height : " << thold_object_height_rate << "%" << endl;
             // cout << "Obj Width  : " << thold_object_width_rate << "%" << endl;
             // cout << "ROI HEIGHT : " << roi_height_rate << "%" << endl;
@@ -509,7 +509,7 @@ void FrameHandler::set_Mask(){
     
     // dilate(fgMaskMOG2, fgMaskMOG2, Mat(), Point(-1, -1), 2, 1, 1);
     
-    threshold(fgMaskMOG2, fgMaskMOG2, thold_binarization, 255, cv::THRESH_BINARY);
+    threshold(fgMaskMOG2, fgMaskMOG2, THOLD_BIN, 255, cv::THRESH_BINARY);
     // Remove the shadow parts and the noise
     
     upper_1 = fgMaskMOG2.ptr<uchar>(upperline - thold_object_height);
@@ -943,7 +943,10 @@ void FrameHandler::fitBox(DetectedObject &roi){
 
         
         /* flag = false 이면 땡겨야 한다. */
+        flagA = flagB = false;
         for(int i=box.y; i<box.y + box.height; i++){
+            if(isTracked(&roi, box.x, i))
+                break;
             if(!flagA){
                 if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
                     flagA = true;
@@ -995,7 +998,10 @@ void FrameHandler::fitBox(DetectedObject &roi){
             box.height = (frame.rows - box.y) - 1;
         
         /* flag = true 가 한번이라도 있으면 땡기지 않아도 된다. */
+        flagA = flagB = false;
         for(int i=box.x; i<box.x + box.width; i++){
+            if(isTracked(&roi, box.x, i))
+                break;
             if(!flagA){
                 if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
                     flagA = true;
@@ -1068,6 +1074,8 @@ void FrameHandler::extractBox(DetectedObject &roi){
         flagA = flagB = false;
         /* flag = true 이면 늘려야 한다. */
         for(int i=box.y; i<box.y + box.height; i++){
+            if(isTracked(&roi, box.x, i))
+                break;
             if(workA && !flagA){
                 if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
                     flagA = true;
@@ -1128,6 +1136,8 @@ void FrameHandler::extractBox(DetectedObject &roi){
         
         flagA = flagB = false;
         for(int i=box.x; i<box.x + box.width; i++){
+            if(isTracked(&roi, box.x, i))
+                break;
             if(workA && !flagA){
                 if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
                     flagA = true;
@@ -1151,4 +1161,21 @@ void FrameHandler::extractBox(DetectedObject &roi){
             box.height += 1;
         }
     }
+}
+
+bool FrameHandler::isTracked(DetectedObject *except, int x, int y){
+    bool flag = false;
+    DetectedObject *roi = NULL;
+    for(int i=0; i<Objects.size(); i++){
+        if(except != &Objects[i]){
+            roi = &Objects[i];
+            if(roi->x <= x && x <= roi->x + roi->width){
+                if(roi->y <= y && y <= roi->y + roi->height){
+                    flag = true;
+                    break;
+                }
+            }
+        }
+    }
+    return flag;
 }

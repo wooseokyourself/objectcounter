@@ -48,18 +48,29 @@ void DetectedObject::reset(int personMax, Mat& frame, const int &roi_width, cons
     center_y = y + height/2;
     area = countNonZero(Mat(frame, box));
     
+    /* 사람 한 명 분의 box */
+    int wid = roi_width/2;
+    int hei = roi_height/2;
+    
     /* 상자 내의 사람 수 추정하기. */
-    if(box.width < roi_width && box.height < roi_height){
+    if(box.width < wid && box.height < hei){
         if(0 <= area && area <= personMax)
             peoplenumber = 1;
+        /*
         else
-            return; /* box는 사람 1명분인데 blob은 그것보다 많이 잡힌경우, 기존 peoplenumber 유지. */
+            return; box는 사람 1명분인데 blob은 그것보다 많이 잡힌경우, 기존 peoplenumber 유지. */
     }
-    else if(box.width < roi_width*2 && box.height < roi_height*2){
+    else if( (wid < box.width && box.width < wid*2) && (box.height < hei*2) ){
         if(personMax < area && area < personMax*2)
             peoplenumber = 2;
+        /*
         else
-            return; /* box는 사람 2명분인데 blob은 그것보다 많이 잡힌경우, 기존 peoplenumber 유지. */
+            return; box는 사람 2명분인데 blob은 그것보다 많이 잡힌경우, 기존 peoplenumber 유지. */
+    }
+    
+    /* 당최 이유를 모르겠는데 가끔 peoplenumber 가 50의 배수로 되는 경우가 있다;; */
+    if(peoplenumber % 50 == 0 && peoplenumber > 3){
+        peoplenumber = 1;
     }
 }
 

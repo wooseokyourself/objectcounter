@@ -96,6 +96,7 @@ protected:
     void MakeBox(int center_x, int center_y);
     void fitBox(DetectedObject& roi); /* Make roi to fit for its blob */
     void extractBox(DetectedObject& roi); /* Extract the box if white blobs exists right beside the barrier of the box. */
+    bool isTracked(DetectedObject *except, int x, int y); /* True if (x,y) is in boundary of some Objects which excepts '*except'. */
 };
 
 #endif /* FrameHandler_hpp */
