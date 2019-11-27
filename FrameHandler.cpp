@@ -144,14 +144,12 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                     delete fgMaskMOG2;
                     delete pMOG;
                     delete inputVideo;
+                    destroyWindow("processing...");
                     
-                    if(max-min <= 7){ /* 종료조건 */
-                        if(morethanzero[i])
-                            return var[i+1];
-                        else
-                            return var[i];
-                    }
-                    return calib(videopath, f, var[i-1], var[i], personMax);
+                    if(var[i] - var[i-1] == 1) /* 종료조건 */
+                        return var[i];
+                    else
+                        return calib(videopath, f, var[i-1], var[i], personMax);
                 }
                 break;
             }
