@@ -737,47 +737,9 @@ void FrameHandler::tracking_and_counting(){
         for(int i=0; i<Objects.size(); i++){
             // time_start = getTickCount();
             
-            ////////////////////// CAM SHIFT(Visualized as red circles) ///////////////////////
-            // RotatedRect tracker = CamShift(fgMaskMOG2, Objects[i].box, TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
-            // boxes[i] is delivered as it's reference; CamShift renews the boxes[i]'s position.
-            // ellipse( frame, tracker, Scalar(0,0,255), 3, LINE_AA ); // Draw red circle on the frame.
-            ////////////////////////////////////////////////////////
-            
-            ////////////////////// CAM SHIFT(Visualized as rectangles) ///////////////////////
-            // CamShift(fgMaskMOG2, Objects[i].box, TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
-            // rectangle(frame, Objects[i].box, Scalar(0, 255, 0));
-            ////////////////////////////////////////////////////////
-            
-            
-            ////////////////////// MEAN SHIFT(Referenced from opencv docs) //////////////////////
-            /*
-            if(!Objects[i].roi_hist.empty()){
-                calcBackProject(&hsv, 1, channels, Objects[i].roi_hist, dst, range); // for HSV in meanShift
-                
-                 &hsv        <- const Mat* images
-                 1           <- int nimages
-                 channels    <- const int* channels
-                 roi_hist    <- InputArray hist
-                 dst         <- OutputArray backProject
-                 range       <- const float** ranges
-                
-                CamShift(dst, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
-                RotatedRect tracker = CamShift(dst, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
-                ellipse( frame, tracker, Scalar(0,0,255), 3, LINE_AA ); // Draw red circle on the frame.
-                
-                meanShift(dst, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
-            }
-            else{
-                swap(Objects[i], Objects.back());
-                Objects.pop_back();
-                i++;
-                continue;
-            }*/
-            
             meanShift(fgMaskMOG2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
             rectangle(frame, Objects[i].box, Scalar(0, 255, 0), 3);
             Objects[i].reset(personMax, fgMaskMOG2, roi_width, roi_height);
-            /////////////////////////////////////////////////////////////////////////////////////
             
             area = to_string(Objects[i].area) + ", NUMBER: " + to_string(Objects[i].peoplenumber);
             
@@ -1179,3 +1141,8 @@ bool FrameHandler::isTracked(DetectedObject *except, int x, int y){
     }
     return flag;
 }
+
+//good Wooseok!
+//Thank you!!
+//Have a nice day!!!
+
