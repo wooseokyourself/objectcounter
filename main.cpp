@@ -10,7 +10,7 @@
 int main(void){
     while(true){
         FrameHandler* system = new FrameHandler("VIDEOPATH");
-        if(system->Play()){
+        if(system->play()){
             delete system;
             break;
         }

@@ -42,7 +42,7 @@ void callback_setBox(int event, int x, int y, int flags, void *userdata){
  binarization = 240 으로 올렸다.
   >> 여기 binarization 을 올리지 말고, varThreshold 값을 더 올리는게 맞을 것 같다.
  */
-int calib(string videopath, int f, int min, int max, int& personMax){
+int calib(string videopath, int f, int min, int max, int& person_max){
     cout << "calib func (" << min << ", " << max << ")" << endl;
     if (min < 1)
         min = 1;
@@ -82,7 +82,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
     /* inbox, subtract 계산 */
     for(int i=0; i<7; i++){
         Mat *frame = new Mat;
-        Mat *fgMaskMOG2 = new Mat;
+        Mat *fg_mask_mog2 = new Mat;
         Ptr<BackgroundSubtractor> *pMOG = new Ptr<BackgroundSubtractor>;
         VideoCapture *inputVideo = new VideoCapture;
         namedWindow("processing...");
@@ -98,23 +98,23 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                 cout << "error. 왜 동영상이 벌써끊겨?" << endl;
                 exit(-1);
             }
-            (*pMOG)->apply(*frame, *fgMaskMOG2);
+            (*pMOG)->apply(*frame, *fg_mask_mog2);
             
             
             /*
              blur와 binarization 은 실제 프로그램 구동시의 설정과 동일하게.
-             set_Mask() 참고.
+             set_mask() 참고.
              */
             /* blur 처리 */
-            blur(*fgMaskMOG2, *fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
+            blur(*fg_mask_mog2, *fg_mask_mog2, cv::Size(15, 15), cv::Point(-1, -1));
             /* Binarization threshold = 100 로 고정 */
-            threshold(*fgMaskMOG2, *fgMaskMOG2, THOLD_BIN, 255, THRESH_BINARY);
+            threshold(*fg_mask_mog2, *fg_mask_mog2, THOLD_BIN, 255, THRESH_BINARY);
             
             
-            imshow("processing...", *fgMaskMOG2);
+            imshow("processing...", *fg_mask_mog2);
             // if(nowf%5 == 0) waitKey(0);
             if(nowf == f){
-                inbox[i] = countNonZero(Mat(*fgMaskMOG2, box));
+                inbox[i] = countNonZero(Mat(*fg_mask_mog2, box));
                 cout << inbox[i] << " | " ;
                 if(inbox[i] > high){
                     secondhigh = high;
@@ -126,7 +126,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                     low = inbox[i];
                     lowidx = i;
                 }
-                subtract[i] = countNonZero(*fgMaskMOG2) - inbox[i];
+                subtract[i] = countNonZero(*fg_mask_mog2) - inbox[i];
                 cout << subtract[i] << endl;
                 if(subtract[i] > 0)
                     morethanzero[i] = true;
@@ -135,16 +135,16 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                 
                 /* subtract[왼쪽] > 0 && subtract[오른쪽] = 0 이라면 여기에서 바로 그 두개를 가지고 재귀호출 */
                 if(i>0 && morethanzero[i-1] && !morethanzero[i]){
-                    /* personMax 갱신 */
-                    if(personMax == 0){
-                        personMax = (inbox[i-1] + inbox[i]) / 2;
+                    /* person_max 갱신 */
+                    if(person_max == 0){
+                        person_max = (inbox[i-1] + inbox[i]) / 2;
                     }
                     else{
-                        personMax = (personMax + ((inbox[i-1] + inbox[i]) / 2)) / 2;
+                        person_max = (person_max + ((inbox[i-1] + inbox[i]) / 2)) / 2;
                     }
                     
                     delete frame;
-                    delete fgMaskMOG2;
+                    delete fg_mask_mog2;
                     delete pMOG;
                     delete inputVideo;
                     destroyWindow("processing...");
@@ -152,13 +152,13 @@ int calib(string videopath, int f, int min, int max, int& personMax){
                     if(var[i] - var[i-1] == 1) /* 종료조건 */
                         return var[i];
                     else
-                        return calib(videopath, f, var[i-1], var[i], personMax);
+                        return calib(videopath, f, var[i-1], var[i], person_max);
                 }
                 break;
             }
         }
         delete frame;
-        delete fgMaskMOG2;
+        delete fg_mask_mog2;
         delete pMOG;
         delete inputVideo;
         destroyWindow("processing...");
@@ -199,13 +199,13 @@ int calib(string videopath, int f, int min, int max, int& personMax){
         int S = round(sumDiffSubtracts/7);
         int k = round(subtract[6] / S);
         if(subtract[0] > subtract[6]){
-            // return calib(videopath, f, var[6], (max-min)+var[6], personMax);
-            return calib(videopath, f, (var[6] + (V*(k-1))), (var[6] + (V*(k+1))), personMax);
+            // return calib(videopath, f, var[6], (max-min)+var[6], person_max);
+            return calib(videopath, f, (var[6] + (V*(k-1))), (var[6] + (V*(k+1))), person_max);
         }
         else if(subtract[0] < subtract[6]){
             cout << "뭔가 이상한데용? 어떻게 subtract[6]이 subtract[0]보다 더 클 수 있죠?" << endl;
             exit(-1);
-            // return calib(videopath, f, (max-min)-var[0], var[0], personMax);
+            // return calib(videopath, f, (max-min)-var[0], var[0], person_max);
         }
         else{
             /*
@@ -214,7 +214,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
              */
             cout << "Bounding Box가 너무 좁습니다! 더 넓게 설정하십씨오!" << endl;
             exit(-1);
-            // return std::max(calib(videopath, f, var[6], max+var[6], personMax), calib(videopath, f, min-var[0], var[0], personMax));
+            // return std::max(calib(videopath, f, var[6], max+var[6], person_max), calib(videopath, f, min-var[0], var[0], person_max));
         }
     }
     
@@ -228,7 +228,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
             return var[highidx];
         }
         else{
-            return calib(videopath, f, max, max+(max-min)/2, personMax);
+            return calib(videopath, f, max, max+(max-min)/2, person_max);
         }
     }
     else{
@@ -237,7 +237,7 @@ int calib(string videopath, int f, int min, int max, int& personMax){
     }
 }
 
-int calib_init(string videopath, int& personMax){
+int calib_init(string videopath, int& person_max){
     /*
      맥에서 비디오 저장이 안되어서 일단은 원본동영상에서 정지하였을 때의 프레임수를 넘겨서,
      calib에서는 원본동영상과 프레임수로 언제 MOG2 계산을 할 지를 결정하는 식으로 구현함.
@@ -287,18 +287,18 @@ int calib_init(string videopath, int& personMax){
     cout << "set pt2(" << boxpt2x << "," << boxpt2y << ")" << endl;
     
     /* calib 재귀 초귀 inputs: 1(min), 50(max) */
-    return calib(videopath, f, 1, 500, personMax);
+    return calib(videopath, f, 1, 500, person_max);
 }
 
-FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), personMax(0)
+FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), time_end(0), max_width_temp(0), recursive_temp1(0), recursive_temp2(0), recursive_temp3(0), counter(0), person_max(0)
 {
     int capture_type;
     cout << "Capture type(1: video input / 0: Cam) : "; cin >> capture_type;
     
     /* MOG2 파라미터 */
-    int varThreshold = calib_init(videopath, personMax);
+    int varThreshold = calib_init(videopath, person_max);
     cout << "varThreshold: " << varThreshold << endl;
-    cout << "personMax   : " << personMax << endl;
+    cout << "person_max   : " << person_max << endl;
     
     if(capture_type == 1)
         capture.open(videopath);
@@ -404,24 +404,24 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
      */
     
     
-    pMOG->apply(frame, fgMaskMOG2);
+    pMOG->apply(frame, fg_mask_mog2);
     
     cout << frame.cols << " " << frame.rows << endl;
-    cout << fgMaskMOG2.cols << " " << fgMaskMOG2.rows << endl;
+    cout << fg_mask_mog2.cols << " " << fg_mask_mog2.rows << endl;
     
     upper_1, upper_2, upper_3, below_3, below_2, below_1 = nullptr;
 }
 
 FrameHandler::~FrameHandler(){
-    if(frame.isContinuous() && fgMaskMOG2.isContinuous()){
+    if(frame.isContinuous() && fg_mask_mog2.isContinuous()){
         frame.release();
-        fgMaskMOG2.release();
+        fg_mask_mog2.release();
         destroyAllWindows();
     }
     Objects.clear();
 }
 
-bool FrameHandler::Play(){
+bool FrameHandler::play(){
     while(1){
         time_start = getTickCount();
         
@@ -455,8 +455,8 @@ bool FrameHandler::Play(){
             exit(EXIT_FAILURE);
         }
         
-        pMOG->apply(frame, fgMaskMOG2);
-        set_Mask();
+        pMOG->apply(frame, fg_mask_mog2);
+        set_mask();
         
         check_endpoint();
         
@@ -469,7 +469,7 @@ bool FrameHandler::Play(){
         paint_line();
         
         imshow("Frame", frame);
-        imshow("FG Mask MOG 2", fgMaskMOG2);
+        imshow("FG Mask MOG 2", fg_mask_mog2);
         
         totalframe++;
         if(totalframe == 2000)
@@ -503,22 +503,22 @@ bool FrameHandler::Play(){
 // UTILITIES
 
 
-void FrameHandler::set_Mask(){
-    blur(fgMaskMOG2, fgMaskMOG2, cv::Size(15, 15), cv::Point(-1, -1));
+void FrameHandler::set_mask(){
+    blur(fg_mask_mog2, fg_mask_mog2, cv::Size(15, 15), cv::Point(-1, -1));
     // Blur the foreground mask to reduce the effect of noise and false positives
     
-    // dilate(fgMaskMOG2, fgMaskMOG2, Mat(), Point(-1, -1), 2, 1, 1);
+    // dilate(fg_mask_mog2, fg_mask_mog2, Mat(), Point(-1, -1), 2, 1, 1);
     
-    threshold(fgMaskMOG2, fgMaskMOG2, THOLD_BIN, 255, cv::THRESH_BINARY);
+    threshold(fg_mask_mog2, fg_mask_mog2, THOLD_BIN, 255, cv::THRESH_BINARY);
     // Remove the shadow parts and the noise
     
-    upper_1 = fgMaskMOG2.ptr<uchar>(upperline - thold_object_height);
-    upper_2 = fgMaskMOG2.ptr<uchar>(upperline);
-    upper_3 = fgMaskMOG2.ptr<uchar>(upperline + thold_object_height);
+    upper_1 = fg_mask_mog2.ptr<uchar>(upperline - thold_object_height);
+    upper_2 = fg_mask_mog2.ptr<uchar>(upperline);
+    upper_3 = fg_mask_mog2.ptr<uchar>(upperline + thold_object_height);
     
-    below_3 = fgMaskMOG2.ptr<uchar>(belowline - thold_object_height);
-    below_2 = fgMaskMOG2.ptr<uchar>(belowline);
-    below_1 = fgMaskMOG2.ptr<uchar>(belowline + thold_object_height);
+    below_3 = fg_mask_mog2.ptr<uchar>(belowline - thold_object_height);
+    below_2 = fg_mask_mog2.ptr<uchar>(belowline);
+    below_1 = fg_mask_mog2.ptr<uchar>(belowline + thold_object_height);
 }
 
 void FrameHandler::check_endpoint(){
@@ -533,7 +533,7 @@ void FrameHandler::check_endpoint(){
             // this difference helps to prevent not removing the box which created just now.
             
             /*
-            Objects[k].reset(personMax, fgMaskMOG2, roi_width, roi_height);
+            Objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
              check_endpoint가 detect() 처럼 매 프레임 실행되는게 아니라면 이 reset이 필요하지만,
              현재 구현은 check_endpoint를 매 프레임에 실행되도록 해두었으므로 reset이 필요 없다.
              왜냐하면 tracking_and_counting() 에서 reset을 해주기 때문이다.
@@ -570,9 +570,9 @@ void FrameHandler::check_endpoint(){
         }
         
 // (이하는 일시적인 조명 등으로 box가 잘못생성된 것들을 제거)
-        fitBox(Objects[k]);
-        extractBox(Objects[k]);
-        Objects[k].reset(personMax, fgMaskMOG2, roi_width, roi_height);
+        fit_box(Objects[k]);
+        extract_box(Objects[k]);
+        Objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
         
         /* 너비 밑 높이가 비정상적으로 큰 box 제거 */
         if(Objects[k].width > roi_width*2 || Objects[k].height > roi_height*2){
@@ -615,7 +615,7 @@ void FrameHandler::detection(){
     while(true){ // for upper line
         
         for(int i=0; i<Objects.size(); i++){
-            Objects[i].save_prev_pos(fgMaskMOG2);
+            Objects[i].save_prev_pos(fg_mask_mog2);
             /*
             if(Objects[i].y <= upperline + thold_object_height){
                 if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
@@ -682,7 +682,7 @@ void FrameHandler::detect_upperline(int x){
                     max_width_temp = max( max(recursive_temp1, recursive_temp2), recursive_temp3 );
                     if(thold_object_width <= max_width_temp){
                         // This "if" checks whether detected object is big enough ; standard is "thold_object_width"
-                        MakeBox((x*ratio) + (max_width_temp/2), upperline);
+                        make_box((x*ratio) + (max_width_temp/2), upperline);
                         // upperline is y cordinate of upper_2 pixels
                     }
                     x += int(max_width_temp/ratio); // After checking the object, we don't need to check the overlapping pixels, so jump.
@@ -703,11 +703,11 @@ void FrameHandler::detect_belowline(int x){
     // circle(frame, Point(x * ratio, belowline - thold_object_height), 6, Scalar(0, 0, 255)); // Debug ; to see detected points.
     if(below_3[x * ratio] == 255){
         if(below_2[x * ratio] == 255){
-            // circle(fgMaskMOG2, Point(x * ratio, belowline), 3, Scalar(0, 0, 255)); // Debug ;
+            // circle(fg_mask_mog2, Point(x * ratio, belowline), 3, Scalar(0, 0, 255)); // Debug ;
             if(below_1[x * ratio] == 255){
                 // time_start = getTickCount();
                 max_width_temp = 0;
-                // circle(fgMaskMOG2, Point(x * ratio, belowline + thold_object_height), 3, Scalar(0, 0, 255)); // Debug ;
+                // circle(fg_mask_mog2, Point(x * ratio, belowline + thold_object_height), 3, Scalar(0, 0, 255)); // Debug ;
                 recursive_temp1 = recursive_ruler_x(below_1, x * ratio, thold_detect_cols);
                 recursive_temp2 = recursive_ruler_x(below_2, x * ratio, thold_detect_cols);
                 recursive_temp3 = recursive_ruler_x(below_3, x * ratio, thold_detect_cols);
@@ -716,7 +716,7 @@ void FrameHandler::detect_belowline(int x){
                     max_width_temp = max( max(recursive_temp1, recursive_temp2), recursive_temp3 );
                     if(thold_object_width <= max_width_temp){
                         // This "if" checks whether detected object is big enough ; standard is "thold_object_width"
-                        MakeBox((x*ratio) + (max_width_temp/2), belowline);
+                        make_box((x*ratio) + (max_width_temp/2), belowline);
                         // upperline is y cordinate of upper_2 pixels
                     }
                     x += int(max_width_temp/ratio); // After checking the object, we don't need to check the overlapping pixels, so jump.
@@ -737,9 +737,9 @@ void FrameHandler::tracking_and_counting(){
         for(int i=0; i<Objects.size(); i++){
             // time_start = getTickCount();
             
-            meanShift(fgMaskMOG2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
+            meanShift(fg_mask_mog2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
             rectangle(frame, Objects[i].box, Scalar(0, 255, 0), 3);
-            Objects[i].reset(personMax, fgMaskMOG2, roi_width, roi_height);
+            Objects[i].reset(person_max, fg_mask_mog2, roi_width, roi_height);
             
             area = to_string(Objects[i].area) + ", NUMBER: " + to_string(Objects[i].peoplenumber);
             
@@ -755,7 +755,7 @@ void FrameHandler::tracking_and_counting(){
                     counter -= Objects[i].peoplenumber;
                 else
                     counter += Objects[i].peoplenumber;
-                cout << "\t >> IN : " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << personMax <<endl;
+                cout << "\t >> IN : " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << person_max <<endl;
             }
             if( (Objects[i].position == below_area) && (Objects[i].center_y < midline) ){
                 Objects[i].position = upper_area;
@@ -763,7 +763,7 @@ void FrameHandler::tracking_and_counting(){
                     counter += Objects[i].peoplenumber;
                 else
                     counter -= Objects[i].peoplenumber;
-                cout << "\t >> OUT: " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << personMax <<endl;
+                cout << "\t >> OUT: " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << person_max <<endl;
             }
             // time_end = getTickCount();
             // cout << "tracking_and_counting() time : " << (time_end - time_start) / getTickFrequency() << endl;
@@ -799,7 +799,7 @@ void FrameHandler::paint_line(){
     putText(frame, dude, Point(15, 35), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
     
     /* box
-    rectangle(fgMaskMOG2, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
+    rectangle(fg_mask_mog2, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
     rectangle(frame, Point(10, 40), Point( 10 + thold_object_width, 40 + thold_object_height*2 ), Scalar(255,255,255), 2);
     */
     
@@ -817,12 +817,12 @@ int FrameHandler::recursive_ruler_x(uchar* ptr, int start, const int& interval){
     }
 }
 
-void FrameHandler::MakeBox(int center_x, int center_y){
+void FrameHandler::make_box(int center_x, int center_y){
     /* This "if" checks whether this box is detected previous box's object(by frame).
     If does, return (not making a new box). */
     
     if(Objects.size() > 0){
-        Objects.back().reset(personMax, fgMaskMOG2, roi_width, roi_height);
+        Objects.back().reset(person_max, fg_mask_mog2, roi_width, roi_height);
         if(abs(Objects.back().center_y - center_y) < roi_height/2 && abs(Objects.back().center_x - center_x) < roi_width ){
             return;
         }
@@ -866,12 +866,12 @@ void FrameHandler::MakeBox(int center_x, int center_y){
         Objects.push_back( DetectedObject(box, totalframe, below_area) );
     }
     DetectedObject *BoundingBox = &(Objects.back());
-    fitBox(*BoundingBox);
-    extractBox(*BoundingBox);
-    BoundingBox->reset(personMax, fgMaskMOG2, roi_width, roi_height);
+    fit_box(*BoundingBox);
+    extract_box(*BoundingBox);
+    BoundingBox->reset(person_max, fg_mask_mog2, roi_width, roi_height);
 }
 
-void FrameHandler::fitBox(DetectedObject &roi){
+void FrameHandler::fit_box(DetectedObject &roi){
     Rect& box = roi.box;
     
     // bool workA, workB;
@@ -907,15 +907,15 @@ void FrameHandler::fitBox(DetectedObject &roi){
         /* flag = false 이면 땡겨야 한다. */
         flagA = flagB = false;
         for(int i=box.y; i<box.y + box.height; i++){
-            if(isTracked(&roi, box.x, i))
+            if(is_tracked(&roi, box.x, i))
                 break;
             if(!flagA){
-                if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
                     flagA = true;
                 }
             }
             if(!flagB){
-                if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
                     flagB = true;
                 }
             }
@@ -962,15 +962,15 @@ void FrameHandler::fitBox(DetectedObject &roi){
         /* flag = true 가 한번이라도 있으면 땡기지 않아도 된다. */
         flagA = flagB = false;
         for(int i=box.x; i<box.x + box.width; i++){
-            if(isTracked(&roi, box.x, i))
+            if(is_tracked(&roi, box.x, i))
                 break;
             if(!flagA){
-                if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
                     flagA = true;
                 }
             }
             if(!flagB){
-                if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
                     flagB = true;
                 }
             }
@@ -989,7 +989,7 @@ void FrameHandler::fitBox(DetectedObject &roi){
     }
 }
 
-void FrameHandler::extractBox(DetectedObject &roi){
+void FrameHandler::extract_box(DetectedObject &roi){
     Rect& box = roi.box;
     
     /* 세로 줄 조정 */
@@ -1036,15 +1036,15 @@ void FrameHandler::extractBox(DetectedObject &roi){
         flagA = flagB = false;
         /* flag = true 이면 늘려야 한다. */
         for(int i=box.y; i<box.y + box.height; i++){
-            if(isTracked(&roi, box.x, i))
+            if(is_tracked(&roi, box.x, i))
                 break;
             if(workA && !flagA){
-                if(fgMaskMOG2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(i, box.x) == 255){ /* 좌측 픽셀 검사 */
                     flagA = true;
                 }
             }
             if(workB && !flagB){
-                if(fgMaskMOG2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(i, box.x + box.width) == 255){ /* 우측 픽셀 검사 */
                     flagB = true;
                 }
             }
@@ -1098,15 +1098,15 @@ void FrameHandler::extractBox(DetectedObject &roi){
         
         flagA = flagB = false;
         for(int i=box.x; i<box.x + box.width; i++){
-            if(isTracked(&roi, box.x, i))
+            if(is_tracked(&roi, box.x, i))
                 break;
             if(workA && !flagA){
-                if(fgMaskMOG2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(box.y, i) == 255){ /* 상단 픽셀 검사 */
                     flagA = true;
                 }
             }
             if(workB && !flagB){
-                if(fgMaskMOG2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
+                if(fg_mask_mog2.at<uchar>(box.y + box.height, i) == 255){ /* 하단 픽셀 검사 */
                     flagB = true;
                 }
             }
@@ -1125,7 +1125,7 @@ void FrameHandler::extractBox(DetectedObject &roi){
     }
 }
 
-bool FrameHandler::isTracked(DetectedObject *except, int x, int y){
+bool FrameHandler::is_tracked(DetectedObject *except, int x, int y){
     bool flag = false;
     DetectedObject *roi = NULL;
     for(int i=0; i<Objects.size(); i++){

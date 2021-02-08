@@ -29,13 +29,13 @@ private:
 private:
     int thold_detect_time;
     
-    int personMax;    /* (box < personMax) means 1명, (box > personMax) means 2명 */
+    int person_max;    /* (box < person_max) means 1명, (box > person_max) means 2명 */
     int counter;
     int inside; // UP(0) or DOWN(1)
 
     VideoCapture capture;
     Mat frame;
-    Mat fgMaskMOG2;
+    Mat fg_mask_mog2;
     Ptr<BackgroundSubtractor> pMOG;
 
     int ratio;
@@ -80,10 +80,10 @@ private: // Used only for methods
 public:
     FrameHandler(string videopath);
     ~FrameHandler();
-    bool Play();
+    bool play();
 
 protected:
-    void set_Mask();
+    void set_mask();
     void check_endpoint();
     void detection();
     void detect_upperline(int x);
@@ -93,10 +93,10 @@ protected:
 
 protected:
     int recursive_ruler_x(uchar* ptr, int start, const int& interval);
-    void MakeBox(int center_x, int center_y);
-    void fitBox(DetectedObject& roi); /* Make roi to fit for its blob */
-    void extractBox(DetectedObject& roi); /* Extract the box if white blobs exists right beside the barrier of the box. */
-    bool isTracked(DetectedObject *except, int x, int y); /* True if (x,y) is in boundary of some Objects which excepts '*except'. */
+    void make_box(int center_x, int center_y);
+    void fit_box(DetectedObject& roi); /* Make roi to fit for its blob */
+    void extract_box(DetectedObject& roi); /* Extract the box if white blobs exists right beside the barrier of the box. */
+    bool is_tracked(DetectedObject *except, int x, int y); /* True if (x,y) is in boundary of some Objects which excepts '*except'. */
 };
 
 #endif /* FrameHandler_hpp */

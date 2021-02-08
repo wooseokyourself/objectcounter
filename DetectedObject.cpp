@@ -27,11 +27,11 @@ DetectedObject::DetectedObject(Rect box, int frame, int position) : frame(frame)
     this->box = Rect(box.x, box.y, box.width, box.height);
     /*
     reset(frame);
-     원래 여기에서 reset이 이루어졌으나, 이후 매 프레임마다 fitBox, extractBox 를 수행한 후에 reset을 호출하므로 생략.
+     원래 여기에서 reset이 이루어졌으나, 이후 매 프레임마다 fit_box, extract_box 를 수행한 후에 reset을 호출하므로 생략.
      만약 여기에서 reset을 호출하려면, 이 클래스 생성자에서 personMax를 인자로 받아와야함.*/
 }
 
-void DetectedObject::reset(int personMax, Mat& frame, const int &roi_width, const int &roi_height){
+void DetectedObject::reset(int person_max, Mat& frame, const int &roi_width, const int &roi_height){
     if(box.x < 0) box.x = 0;
     if(box.width <= 0 ) box.width = 1;
     if(box.width > frame.cols) box.width = frame.cols;
@@ -54,14 +54,14 @@ void DetectedObject::reset(int personMax, Mat& frame, const int &roi_width, cons
     
     /* 상자 내의 사람 수 추정하기. */
     if(box.width < wid && box.height < hei){
-        if(0 <= area && area <= personMax)
+        if(0 <= area && area <= person_max)
             peoplenumber = 1;
         /*
         else
             return; box는 사람 1명분인데 blob은 그것보다 많이 잡힌경우, 기존 peoplenumber 유지. */
     }
     else if( (wid < box.width && box.width < wid*2) && (box.height < hei*2) ){
-        if(personMax < area && area < personMax*2)
+        if(person_max < area && area < person_max*2)
             peoplenumber = 2;
         /*
         else
@@ -75,7 +75,7 @@ void DetectedObject::reset(int personMax, Mat& frame, const int &roi_width, cons
 }
 
 /* not used */
-void DetectedObject::reset(int personMax){
+void DetectedObject::reset(int person_max){
     x = box.x;
     y = box.y;
     width = box.width;
@@ -89,6 +89,6 @@ void DetectedObject::save_prev_pos(Mat& frame){
     prev_position_y = y;
     /*
     reset(frame);
-     원래 여기에서 reset이 이루어졌으나, 이후 매 프레임마다 fitBox, extractBox 를 수행한 후에 reset을 호출하므로 생략.
+     원래 여기에서 reset이 이루어졌으나, 이후 매 프레임마다 fit_box, extract_box 를 수행한 후에 reset을 호출하므로 생략.
      만약 여기에서 reset을 호출하려면, 이 클래스 생성자에서 personMax를 인자로 받아와야함.*/
 }
