@@ -83,12 +83,12 @@ int calib(string videopath, int f, int min, int max, int& person_max){
     for(int i=0; i<7; i++){
         Mat *frame = new Mat;
         Mat *fg_mask_mog2 = new Mat;
-        Ptr<BackgroundSubtractor> *pMOG = new Ptr<BackgroundSubtractor>;
+        Ptr<BackgroundSubtractor> *ptr_mog2 = new Ptr<BackgroundSubtractor>;
         VideoCapture *inputVideo = new VideoCapture;
         namedWindow("processing...");
         inputVideo->open(videopath);
         Size size = Size((int)inputVideo->get(CAP_PROP_FRAME_WIDTH), (int)inputVideo->get(CAP_PROP_FRAME_HEIGHT));
-        *pMOG = createBackgroundSubtractorMOG2(THOLD_HISTORY, var[i], true);
+        *ptr_mog2 = createBackgroundSubtractorMOG2(THOLD_HISTORY, var[i], true);
         nowf = 0;
         
         cout << "idx: " << i << "| var: " << var[i] << ", ";
@@ -98,7 +98,7 @@ int calib(string videopath, int f, int min, int max, int& person_max){
                 cout << "error. 왜 동영상이 벌써끊겨?" << endl;
                 exit(-1);
             }
-            (*pMOG)->apply(*frame, *fg_mask_mog2);
+            (*ptr_mog2)->apply(*frame, *fg_mask_mog2);
             
             
             /*
@@ -145,7 +145,7 @@ int calib(string videopath, int f, int min, int max, int& person_max){
                     
                     delete frame;
                     delete fg_mask_mog2;
-                    delete pMOG;
+                    delete ptr_mog2;
                     delete inputVideo;
                     destroyWindow("processing...");
                     
@@ -159,7 +159,7 @@ int calib(string videopath, int f, int min, int max, int& person_max){
         }
         delete frame;
         delete fg_mask_mog2;
-        delete pMOG;
+        delete ptr_mog2;
         delete inputVideo;
         destroyWindow("processing...");
         
@@ -315,8 +315,8 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
     thold_detect_time = fps/7;
     cout << "Detecting per " << thold_detect_time << " frames." << endl;
         
-    pMOG = createBackgroundSubtractorMOG2(THOLD_HISTORY, varThreshold, true);
-    // pMOG = createBackgroundSubtractorMOG2(500, 16, false);
+    ptr_mog2 = createBackgroundSubtractorMOG2(THOLD_HISTORY, varThreshold, true);
+    // ptr_mog2 = createBackgroundSubtractorMOG2(500, 16, false);
     
     namedWindow("Frame");
     namedWindow("FG Mask MOG 2");
@@ -404,7 +404,7 @@ FrameHandler::FrameHandler(string videopath) : totalframe(0), time_start(0), tim
      */
     
     
-    pMOG->apply(frame, fg_mask_mog2);
+    ptr_mog2->apply(frame, fg_mask_mog2);
     
     cout << frame.cols << " " << frame.rows << endl;
     cout << fg_mask_mog2.cols << " " << fg_mask_mog2.rows << endl;
@@ -418,7 +418,7 @@ FrameHandler::~FrameHandler(){
         fg_mask_mog2.release();
         destroyAllWindows();
     }
-    Objects.clear();
+    objects.clear();
 }
 
 bool FrameHandler::play(){
@@ -455,7 +455,7 @@ bool FrameHandler::play(){
             exit(EXIT_FAILURE);
         }
         
-        pMOG->apply(frame, fg_mask_mog2);
+        ptr_mog2->apply(frame, fg_mask_mog2);
         set_mask();
         
         check_endpoint();
@@ -524,26 +524,26 @@ void FrameHandler::set_mask(){
 void FrameHandler::check_endpoint(){
     int k = 0;
     while(true){
-        if(k >= Objects.size())
+        if(k >= objects.size())
             break;
         
         /* 중앙선을 넘어서 화면 밖으로 사라지는 box 제거 */
-        if(totalframe - Objects[k].frame > thold_detect_time*10){
+        if(totalframe - objects[k].frame > thold_detect_time*10){
             // This "if" checks the difference between "object's frame" from "total frame".
             // this difference helps to prevent not removing the box which created just now.
             
             /*
-            Objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
+            objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
              check_endpoint가 detect() 처럼 매 프레임 실행되는게 아니라면 이 reset이 필요하지만,
              현재 구현은 check_endpoint를 매 프레임에 실행되도록 해두었으므로 reset이 필요 없다.
              왜냐하면 tracking_and_counting() 에서 reset을 해주기 때문이다.
              */
             
-            if(Objects[k].center_y <= upperline /*Down-to-Top*/ || Objects[k].center_y >= belowline  /*Top-to-Down*/
-               || Objects[k].y == 0 || Objects[k].y + Objects[k].height == frame.rows){
-                if(Objects.size() != 0)
-                    swap(Objects[k], Objects.back());
-                Objects.pop_back();
+            if(objects[k].center_y <= upperline /*Down-to-Top*/ || objects[k].center_y >= belowline  /*Top-to-Down*/
+               || objects[k].y == 0 || objects[k].y + objects[k].height == frame.rows){
+                if(objects.size() != 0)
+                    swap(objects[k], objects.back());
+                objects.pop_back();
                 continue;
                 
             }
@@ -552,39 +552,39 @@ void FrameHandler::check_endpoint(){
         
         /* 가만히 있는 box 제거 */
         /*
-        if(abs(Objects[k].prev_position_y - Objects[k].y) < 10 && abs(Objects[k].prev_position_x - Objects[k].x) < 10){
-            swap(Objects[k], Objects.back());
-            Objects.pop_back();
+        if(abs(objects[k].prev_position_y - objects[k].y) < 10 && abs(objects[k].prev_position_x - objects[k].x) < 10){
+            swap(objects[k], objects.back());
+            objects.pop_back();
             continue;
         }
          */
         
         /* 센터가 겹치는 box 중 하나 제거 */
-        for(int i=0; i<Objects.size(); i++){
+        for(int i=0; i<objects.size(); i++){
             if(k == i)
                 continue;
-            if(abs(Objects[k].center_x - Objects[i].center_x) < roi_width*8/10 && abs(Objects[k].center_y - Objects[i].center_y) < roi_height*8/10){
-                swap(Objects[k], Objects.back());
-                Objects.pop_back();
+            if(abs(objects[k].center_x - objects[i].center_x) < roi_width*8/10 && abs(objects[k].center_y - objects[i].center_y) < roi_height*8/10){
+                swap(objects[k], objects.back());
+                objects.pop_back();
             }
         }
         
 // (이하는 일시적인 조명 등으로 box가 잘못생성된 것들을 제거)
-        fit_box(Objects[k]);
-        extract_box(Objects[k]);
-        Objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
+        fit_box(objects[k]);
+        extract_box(objects[k]);
+        objects[k].reset(person_max, fg_mask_mog2, roi_width, roi_height);
         
         /* 너비 밑 높이가 비정상적으로 큰 box 제거 */
-        if(Objects[k].width > roi_width*2 || Objects[k].height > roi_height*2){
-            swap(Objects[k], Objects.back());
-            Objects.pop_back();
+        if(objects[k].width > roi_width*2 || objects[k].height > roi_height*2){
+            swap(objects[k], objects.back());
+            objects.pop_back();
             continue;
         }
         
         /* foreground가 아예 없는 box 제거 */
-        if(Objects[k].area == 0){
-            swap(Objects[k], Objects.back());
-            Objects.pop_back();
+        if(objects[k].area == 0){
+            swap(objects[k], objects.back());
+            objects.pop_back();
             continue;
         }
 //
@@ -614,17 +614,17 @@ void FrameHandler::detection(){
     
     while(true){ // for upper line
         
-        for(int i=0; i<Objects.size(); i++){
-            Objects[i].save_prev_pos(fg_mask_mog2);
+        for(int i=0; i<objects.size(); i++){
+            objects[i].save_prev_pos(fg_mask_mog2);
             /*
-            if(Objects[i].y <= upperline + thold_object_height){
-                if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
-                    x += int(Objects[i].width/ratio);
+            if(objects[i].y <= upperline + thold_object_height){
+                if((objects[i].x <= x * ratio) && (x * ratio <= objects[i].x + objects[i].width)){
+                    x += int(objects[i].width/ratio);
                 }
             }*/
-            if(Objects[i].center_y <= upperline + thold_object_height){
-                if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
-                    x += int(Objects[i].width/ratio);
+            if(objects[i].center_y <= upperline + thold_object_height){
+                if((objects[i].x <= x * ratio) && (x * ratio <= objects[i].x + objects[i].width)){
+                    x += int(objects[i].width/ratio);
                 }
             }
         }
@@ -639,16 +639,16 @@ void FrameHandler::detection(){
     
     x = 0;
     while(true){ // for below line
-        for(int i=0; i<Objects.size(); i++){
+        for(int i=0; i<objects.size(); i++){
             /*
-            if(Objects[i].y + Objects[i].height >= belowline - thold_object_height){
-                if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
-                    x += int(Objects[i].width/ratio);
+            if(objects[i].y + objects[i].height >= belowline - thold_object_height){
+                if((objects[i].x <= x * ratio) && (x * ratio <= objects[i].x + objects[i].width)){
+                    x += int(objects[i].width/ratio);
                 }
             }*/
-            if(Objects[i].center_y >= belowline - thold_object_height){
-                if((Objects[i].x <= x * ratio) && (x * ratio <= Objects[i].x + Objects[i].width)){
-                    x += int(Objects[i].width/ratio);
+            if(objects[i].center_y >= belowline - thold_object_height){
+                if((objects[i].x <= x * ratio) && (x * ratio <= objects[i].x + objects[i].width)){
+                    x += int(objects[i].width/ratio);
                 }
             }
         }
@@ -732,38 +732,38 @@ void FrameHandler::detect_belowline(int x){
 
 void FrameHandler::tracking_and_counting(){
     string area;
-    if(Objects.size() != 0){ // this "if" condition is necessary because 'roi_hist' is empty when program starts.
+    if(objects.size() != 0){ // this "if" condition is necessary because 'roi_hist' is empty when program starts.
         // cvtColor(frame, hsv, COLOR_BGR2HSV); // for HSV in meanShift
-        for(int i=0; i<Objects.size(); i++){
+        for(int i=0; i<objects.size(); i++){
             // time_start = getTickCount();
             
-            meanShift(fg_mask_mog2, Objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
-            rectangle(frame, Objects[i].box, Scalar(0, 255, 0), 3);
-            Objects[i].reset(person_max, fg_mask_mog2, roi_width, roi_height);
+            meanShift(fg_mask_mog2, objects[i].box, TermCriteria(TermCriteria::EPS | TermCriteria::COUNT, 10, 1));
+            rectangle(frame, objects[i].box, Scalar(0, 255, 0), 3);
+            objects[i].reset(person_max, fg_mask_mog2, roi_width, roi_height);
             
-            area = to_string(Objects[i].area) + ", NUMBER: " + to_string(Objects[i].peoplenumber);
-            
-            
-            rectangle(frame, Point(Objects[i].x, Objects[i].y), Point(Objects[i].x + 50, Objects[i].y + 25), Scalar(255,255,255), -1);
-            putText(frame, area, Point(Objects[i].x, Objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
+            area = to_string(objects[i].area) + ", NUMBER: " + to_string(objects[i].peoplenumber);
             
             
+            rectangle(frame, Point(objects[i].x, objects[i].y), Point(objects[i].x + 50, objects[i].y + 25), Scalar(255,255,255), -1);
+            putText(frame, area, Point(objects[i].x, objects[i].y), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 0, 0));
             
-            if( (Objects[i].position == upper_area) && (Objects[i].center_y > midline) ){
-                Objects[i].position = below_area;
+            
+            
+            if( (objects[i].position == upper_area) && (objects[i].center_y > midline) ){
+                objects[i].position = below_area;
                 if(inside == upper_area)
-                    counter -= Objects[i].peoplenumber;
+                    counter -= objects[i].peoplenumber;
                 else
-                    counter += Objects[i].peoplenumber;
-                cout << "\t >> IN : " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << person_max <<endl;
+                    counter += objects[i].peoplenumber;
+                cout << "\t >> IN : " << objects[i].peoplenumber << "명, area: " << objects[i].area << " | " << person_max <<endl;
             }
-            if( (Objects[i].position == below_area) && (Objects[i].center_y < midline) ){
-                Objects[i].position = upper_area;
+            if( (objects[i].position == below_area) && (objects[i].center_y < midline) ){
+                objects[i].position = upper_area;
                 if(inside == upper_area)
-                    counter += Objects[i].peoplenumber;
+                    counter += objects[i].peoplenumber;
                 else
-                    counter -= Objects[i].peoplenumber;
-                cout << "\t >> OUT: " << Objects[i].peoplenumber << "명, area: " << Objects[i].area << " | " << person_max <<endl;
+                    counter -= objects[i].peoplenumber;
+                cout << "\t >> OUT: " << objects[i].peoplenumber << "명, area: " << objects[i].area << " | " << person_max <<endl;
             }
             // time_end = getTickCount();
             // cout << "tracking_and_counting() time : " << (time_end - time_start) / getTickFrequency() << endl;
@@ -821,9 +821,9 @@ void FrameHandler::make_box(int center_x, int center_y){
     /* This "if" checks whether this box is detected previous box's object(by frame).
     If does, return (not making a new box). */
     
-    if(Objects.size() > 0){
-        Objects.back().reset(person_max, fg_mask_mog2, roi_width, roi_height);
-        if(abs(Objects.back().center_y - center_y) < roi_height/2 && abs(Objects.back().center_x - center_x) < roi_width ){
+    if(objects.size() > 0){
+        objects.back().reset(person_max, fg_mask_mog2, roi_width, roi_height);
+        if(abs(objects.back().center_y - center_y) < roi_height/2 && abs(objects.back().center_x - center_x) < roi_width ){
             return;
         }
     }
@@ -860,12 +860,12 @@ void FrameHandler::make_box(int center_x, int center_y){
     Rect box(x, y, width, height);
     
     if(center_y < frame.rows/2){
-        Objects.push_back( DetectedObject(box, totalframe, upper_area) );
+        objects.push_back( DetectedObject(box, totalframe, upper_area) );
     }
     else{
-        Objects.push_back( DetectedObject(box, totalframe, below_area) );
+        objects.push_back( DetectedObject(box, totalframe, below_area) );
     }
-    DetectedObject *BoundingBox = &(Objects.back());
+    DetectedObject *BoundingBox = &(objects.back());
     fit_box(*BoundingBox);
     extract_box(*BoundingBox);
     BoundingBox->reset(person_max, fg_mask_mog2, roi_width, roi_height);
@@ -1128,9 +1128,9 @@ void FrameHandler::extract_box(DetectedObject &roi){
 bool FrameHandler::is_tracked(DetectedObject *except, int x, int y){
     bool flag = false;
     DetectedObject *roi = NULL;
-    for(int i=0; i<Objects.size(); i++){
-        if(except != &Objects[i]){
-            roi = &Objects[i];
+    for(int i=0; i<objects.size(); i++){
+        if(except != &objects[i]){
+            roi = &objects[i];
             if(roi->x <= x && x <= roi->x + roi->width){
                 if(roi->y <= y && y <= roi->y + roi->height){
                     flag = true;

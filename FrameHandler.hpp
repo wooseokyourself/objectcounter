@@ -36,7 +36,7 @@ private:
     VideoCapture capture;
     Mat frame;
     Mat fg_mask_mog2;
-    Ptr<BackgroundSubtractor> pMOG;
+    Ptr<BackgroundSubtractor> ptr_mog2;
 
     int ratio;
     int thold_binarization;
@@ -55,7 +55,7 @@ private:
 
     int totalframe;
 
-    vector<DetectedObject> Objects;
+    vector<DetectedObject> objects;
 
     uint64 time_start;
     uint64 time_end;
@@ -96,7 +96,7 @@ protected:
     void make_box(int center_x, int center_y);
     void fit_box(DetectedObject& roi); /* Make roi to fit for its blob */
     void extract_box(DetectedObject& roi); /* Extract the box if white blobs exists right beside the barrier of the box. */
-    bool is_tracked(DetectedObject *except, int x, int y); /* True if (x,y) is in boundary of some Objects which excepts '*except'. */
+    bool is_tracked(DetectedObject *except, int x, int y); /* True if (x,y) is in boundary of some objects which excepts '*except'. */
 };
 
 #endif /* FrameHandler_hpp */
