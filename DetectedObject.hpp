@@ -39,7 +39,6 @@ private:
 public:
     DetectedObject(int center_x, int center_y, int width, int height, int frame, int position);
     DetectedObject(Rect box, int frame, int position);
-    // width <- horizon , height <- 2*thold_object_column
     void reset(int person_max, Mat& frame, const int &roi_width, const int &roi_height);
     void reset(int person_max); /* not used */
     void save_prev_pos(Mat& frame);
